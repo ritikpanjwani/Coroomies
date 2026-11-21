@@ -28,9 +28,10 @@ import {
     SaveIcon,
     SlidersHorizontalIcon,
     ClockIcon,
+    UsersRoundIcon,
 } from "./components/Icons";
 import { isValidUpiId } from "./utils/upi";
-import { errorMessage } from "./utils/format";
+import { errorMessage, calculateAge } from "./utils/format";
 
 // Default living preference values
 const PREF_DEFAULTS = {
@@ -40,6 +41,7 @@ const PREF_DEFAULTS = {
     study_habits: "morning",
     smoking_preference: "non_smoker",
     food_preferences: "vegetarian",
+    drinking_preference: "non_drinker",
     social_preferences: "moderate",
     guest_preferences: "sometimes",
     work_from_home: "sometimes",
@@ -49,7 +51,29 @@ const PREF_DEFAULTS = {
     degree: "",
     stream: "",
     year: "",
+    // Demographics & Smart Matching Fields
+    dob: "",
+    gender: "",
+    preferred_flatmate_gender: "unisex",
+    location: "",
+    budget_min: "",
+    budget_max: "",
+    occupation: "",
+    preferred_age_min: "",
+    preferred_age_max: "",
 };
+
+const maxDobDate = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 18);
+    return d.toISOString().split("T")[0];
+})();
+
+const minDobDate = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 100);
+    return d.toISOString().split("T")[0];
+})();
 
 // Cleanliness ratings (1 to 10 scale with clear descriptive labels)
 const CLEANLINESS_OPTIONS = [
@@ -132,7 +156,7 @@ const PREFERENCE_GROUPS = [
     {
         id: "lifestyle",
         title: "Lifestyle, Diet & Social Life",
-        description: "Food preferences, guests, social energy, and smoking.",
+        description: "Food preferences, guests, social energy, smoking, and drinking.",
         icon: UtensilsIcon,
         fields: [
             {
@@ -152,6 +176,16 @@ const PREFERENCE_GROUPS = [
                 options: [
                     ["non_smoker", "Non-smoker (Smoke-free living environment)"],
                     ["smoker", "Smoker (Smoker / outdoor smoking permitted)"],
+                ],
+            },
+            {
+                key: "drinking_preference",
+                label: "Drinking preference",
+                hint: "Your alcohol consumption habits and comfort level.",
+                options: [
+                    ["non_drinker", "Non-drinker (Alcohol-free home)"],
+                    ["social_drinker", "Social drinker (Drinks occasionally in social settings)"],
+                    ["regular_drinker", "Regular drinker (Drinks regularly)"],
                 ],
             },
             {
@@ -293,15 +327,26 @@ export default function Profile({ setPage }) {
                 });
 
                 if (profileRes && profileRes.data && !profileRes.data.message) {
+                    const d = profileRes.data;
                     const loadedPrefs = {
                         ...PREF_DEFAULTS,
-                        ...profileRes.data,
-                        cleanliness: Number(profileRes.data.cleanliness) || 5,
-                        noise_tolerance: Number(profileRes.data.noise_tolerance) || 5,
-                        college: profileRes.data.college || "",
-                        degree: profileRes.data.degree || "",
-                        stream: profileRes.data.stream || "",
-                        year: profileRes.data.year ? String(profileRes.data.year) : "",
+                        ...d,
+                        cleanliness: Number(d.cleanliness) || 5,
+                        noise_tolerance: Number(d.noise_tolerance) || 5,
+                        college: d.college || "",
+                        degree: d.degree || "",
+                        stream: d.stream || "",
+                        year: d.year ? String(d.year) : "",
+                        dob: d.dob || "",
+                        gender: d.gender || "",
+                        preferred_flatmate_gender: d.preferred_flatmate_gender || "unisex",
+                        location: d.location || "",
+                        budget_min: d.budget_min !== null && d.budget_min !== undefined ? String(d.budget_min) : "",
+                        budget_max: d.budget_max !== null && d.budget_max !== undefined ? String(d.budget_max) : "",
+                        occupation: d.occupation || "",
+                        drinking_preference: d.drinking_preference || "non_drinker",
+                        preferred_age_min: d.preferred_age_min !== null && d.preferred_age_min !== undefined ? String(d.preferred_age_min) : "",
+                        preferred_age_max: d.preferred_age_max !== null && d.preferred_age_max !== undefined ? String(d.preferred_age_max) : "",
                     };
                     setPrefs(loadedPrefs);
                     setInitialPrefs(loadedPrefs);
@@ -346,18 +391,63 @@ export default function Profile({ setPage }) {
         });
     }, [prefs, initialPrefs]);
 
-    // Calculate profile completion percentage
-    const profileCompletion = useMemo(() => {
-        let total = 6;
-        let completed = 0;
-        if (avatarUrl) completed += 1;
-        if (name.trim()) completed += 1;
-        if (username.trim()) completed += 1;
-        if (upiId.trim() && isValidUpiId(upiId)) completed += 1;
-        if (prefs.cleanliness && prefs.noise_tolerance) completed += 1;
-        if (prefs.food_preferences && prefs.smoking_preference) completed += 1;
-        return Math.round((completed / total) * 100);
-    }, [avatarUrl, name, username, upiId, prefs]);
+    // Calculate mandatory flatmate discovery profile completeness (12 required fields)
+    const mandatoryStatus = useMemo(() => {
+        const fields = [];
+        const isNameValid = Boolean(name && name.trim());
+        fields.push({ key: "name", label: "Full Name", valid: isNameValid });
+
+        const computedAge = calculateAge(prefs.dob);
+        const isDobValid = Boolean(prefs.dob && computedAge !== null && computedAge >= 18 && computedAge <= 100);
+        fields.push({ key: "dob", label: "Date of Birth (18+)", valid: isDobValid });
+
+        const isGenderValid = Boolean(prefs.gender && ["male", "female", "prefer_not_to_say"].includes(prefs.gender));
+        fields.push({ key: "gender", label: "Your Gender", valid: isGenderValid });
+
+        const isPrefGenderValid = Boolean(prefs.preferred_flatmate_gender && ["male", "female", "unisex"].includes(prefs.preferred_flatmate_gender));
+        fields.push({ key: "preferred_flatmate_gender", label: "Flatmate Gender Preference", valid: isPrefGenderValid });
+
+        const isLocValid = Boolean(prefs.location && prefs.location.trim());
+        fields.push({ key: "location", label: "Preferred Location", valid: isLocValid });
+
+        const isBudgetValid = Boolean(
+            (prefs.budget_min !== "" && !isNaN(Number(prefs.budget_min))) ||
+            (prefs.budget_max !== "" && !isNaN(Number(prefs.budget_max)))
+        );
+        fields.push({ key: "budget", label: "Budget Range", valid: isBudgetValid });
+
+        const isOccValid = Boolean(prefs.occupation && prefs.occupation.trim());
+        fields.push({ key: "occupation", label: "Occupation / Status", valid: isOccValid });
+
+        const isSmokeValid = Boolean(prefs.smoking_preference);
+        fields.push({ key: "smoking", label: "Smoking Policy", valid: isSmokeValid });
+
+        const isDrinkValid = Boolean(prefs.drinking_preference);
+        fields.push({ key: "drinking", label: "Drinking Preference", valid: isDrinkValid });
+
+        const isFoodValid = Boolean(prefs.food_preferences);
+        fields.push({ key: "food", label: "Dietary Preference", valid: isFoodValid });
+
+        const isSleepValid = Boolean(prefs.sleep_schedule);
+        fields.push({ key: "sleep", label: "Sleep Schedule", valid: isSleepValid });
+
+        const isCleanValid = prefs.cleanliness !== null && prefs.cleanliness !== undefined && !isNaN(Number(prefs.cleanliness));
+        fields.push({ key: "cleanliness", label: "Cleanliness Rating", valid: isCleanValid });
+
+        const missing = fields.filter((f) => !f.valid).map((f) => f.label);
+        const completedCount = fields.filter((f) => f.valid).length;
+        const percentage = Math.round((completedCount / fields.length) * 100);
+        return {
+            fields,
+            missing,
+            completedCount,
+            total: fields.length,
+            percentage,
+            isComplete: missing.length === 0,
+        };
+    }, [name, prefs]);
+
+    const profileCompletion = mandatoryStatus.percentage;
 
     // UPI ID status validation helper
     const upiValidation = useMemo(() => {
@@ -617,6 +707,29 @@ export default function Profile({ setPage }) {
     const handleSavePrefs = async () => {
         try {
             setSavingPrefs(true);
+
+            // Client-side validations
+            if (prefs.dob) {
+                const age = calculateAge(prefs.dob);
+                if (age === null || age < 18) {
+                    toast.error("You must be at least 18 years old to join CoRoomies.");
+                    setSavingPrefs(false);
+                    return;
+                }
+                if (age > 100) {
+                    toast.error("Please enter a realistic date of birth (maximum age is 100).");
+                    setSavingPrefs(false);
+                    return;
+                }
+            }
+            if (prefs.budget_min !== "" && prefs.budget_max !== "") {
+                if (Number(prefs.budget_min) > Number(prefs.budget_max)) {
+                    toast.error("Minimum budget cannot exceed maximum budget.");
+                    setSavingPrefs(false);
+                    return;
+                }
+            }
+
             const payload = {
                 ...prefs,
                 cleanliness: Math.min(10, Math.max(1, Number(prefs.cleanliness) || 5)),
@@ -625,11 +738,22 @@ export default function Profile({ setPage }) {
                 degree: prefs.degree?.trim() || null,
                 stream: prefs.stream?.trim() || null,
                 year: prefs.year ? Number(prefs.year) : null,
+                dob: prefs.dob || null,
+                gender: prefs.gender || null,
+                preferred_flatmate_gender: prefs.preferred_flatmate_gender || "unisex",
+                location: prefs.location?.trim() || null,
+                budget_min: prefs.budget_min !== "" ? Number(prefs.budget_min) : null,
+                budget_max: prefs.budget_max !== "" ? Number(prefs.budget_max) : null,
+                occupation: prefs.occupation?.trim() || null,
+                drinking_preference: prefs.drinking_preference || null,
+                preferred_age_min: prefs.preferred_age_min !== "" ? Number(prefs.preferred_age_min) : null,
+                preferred_age_max: prefs.preferred_age_max !== "" ? Number(prefs.preferred_age_max) : null,
             };
 
             await api.put("/profile/", payload);
             setInitialPrefs({ ...prefs });
             toast.success("Living preferences saved. Matchmaking ratings updated!");
+            window.dispatchEvent(new CustomEvent("coroomies:profile-updated"));
         } catch (error) {
             toast.error(errorMessage(error, "Could not save preferences"));
         } finally {
@@ -675,6 +799,74 @@ export default function Profile({ setPage }) {
                     </Badge>
                 </div>
             </div>
+
+            {/* Profile Completion Status Banner */}
+            {!mandatoryStatus.isComplete ? (
+                <div className="rounded-2xl border border-amber-200/80 bg-gradient-to-r from-amber-50 to-orange-50 dark:border-amber-900/50 dark:from-amber-950/30 dark:to-orange-950/20 p-4 sm:p-5 shadow-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs">
+                                <AlertIcon className="h-5 w-5" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                        Mandatory Profile: {mandatoryStatus.percentage}% Complete
+                                    </h3>
+                                    <Badge variant="warning" size="sm">Action Required</Badge>
+                                </div>
+                                <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+                                    Complete all required fields below to unlock flatmate discovery and send roommate connection requests.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                                {mandatoryStatus.missing.length} missing field{mandatoryStatus.missing.length > 1 ? "s" : ""}
+                            </span>
+                        </div>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="mt-3.5 h-2 w-full overflow-hidden rounded-full bg-amber-200/60 dark:bg-amber-900/40">
+                        <div
+                            className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500"
+                            style={{ width: `${mandatoryStatus.percentage}%` }}
+                        />
+                    </div>
+                    {/* Missing fields pills */}
+                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] font-semibold text-amber-800/80 dark:text-amber-300/80 mr-1">Missing:</span>
+                        {mandatoryStatus.missing.map((f, idx) => (
+                            <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 rounded-md bg-white/90 dark:bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800/60 shadow-2xs"
+                            >
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                {f}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-r from-emerald-50 to-teal-50 dark:border-emerald-900/50 dark:from-emerald-950/30 dark:to-teal-950/20 p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                    <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-xs">
+                            <CheckCircleIcon className="h-5 w-5" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
+                                Mandatory Profile 100% Complete!
+                            </h3>
+                            <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                                Your profile meets all requirements. Flatmate discovery and roommate matching are fully active.
+                            </p>
+                        </div>
+                    </div>
+                    <Badge variant="success" dot className="self-start sm:self-auto">
+                        Discovery Active
+                    </Badge>
+                </div>
+            )}
 
             {/* Section Switcher Tabs */}
             <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60 max-w-full overflow-x-auto no-scrollbar touch-scroll">
@@ -1157,6 +1349,215 @@ export default function Profile({ setPage }) {
 
                     {/* Preference Categories */}
                     <div className="space-y-8">
+                        {/* Mandatory Demographics & Mutual Flatmate Matching */}
+                        <div className="rounded-2xl border-2 border-brand-200/90 dark:border-brand-800/80 p-4 sm:p-6 bg-brand-50/30 dark:bg-brand-950/20 space-y-6">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3">
+                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white shadow-sm">
+                                        <UsersRoundIcon className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                                                Identity, Gender & Roommate Criteria
+                                            </h3>
+                                            <Badge variant="brand" size="sm">Mandatory</Badge>
+                                        </div>
+                                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Required for flatmate discovery and mutual compatibility matching.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Date of Birth & Age */}
+                            <div className="space-y-1.5">
+                                <label htmlFor="profile-dob" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                    Date of Birth <span className="text-rose-500">*</span>
+                                </label>
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <input
+                                        id="profile-dob"
+                                        type="date"
+                                        max={maxDobDate}
+                                        min={minDobDate}
+                                        value={prefs.dob || ""}
+                                        onChange={(e) => setPrefs((prev) => ({ ...prev, dob: e.target.value }))}
+                                        className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                    />
+                                    {calculateAge(prefs.dob) !== null && (
+                                        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800 text-brand-700 dark:text-brand-300 text-xs font-bold shrink-0 self-start sm:self-auto">
+                                            <span>{calculateAge(prefs.dob)} years old</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                    Strictly private. Your full date of birth is never revealed publicly; only your calculated age is shown to eligible flatmates. (Must be 18+)
+                                </p>
+                            </div>
+
+                            {/* Your Gender */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                    Your Gender <span className="text-rose-500">*</span>
+                                </label>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    We never assume your gender based on name or photo. Select how you identify:
+                                </p>
+                                <div className="grid gap-2.5 sm:grid-cols-3">
+                                    {[
+                                        { value: "male", label: "Male", desc: "Identify as Male" },
+                                        { value: "female", label: "Female", desc: "Identify as Female" },
+                                        { value: "prefer_not_to_say", label: "Prefer not to say", desc: "Private (matched with Unisex preference only)" },
+                                    ].map((opt) => {
+                                        const isSelected = prefs.gender === opt.value;
+                                        return (
+                                            <button
+                                                key={opt.value}
+                                                type="button"
+                                                onClick={() => setPrefs((prev) => ({ ...prev, gender: opt.value }))}
+                                                className={`relative flex flex-col items-start p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                                                    isSelected
+                                                        ? "border-brand-500 bg-brand-50/80 dark:bg-brand-950/40 text-slate-900 dark:text-slate-100 ring-2 ring-brand-500/30 shadow-xs"
+                                                        : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between w-full">
+                                                    <span className="text-sm font-semibold">{opt.label}</span>
+                                                    <span className={`h-4 w-4 rounded-full border flex items-center justify-center ${isSelected ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 dark:border-slate-600"}`}>
+                                                        {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-snug">
+                                                    {opt.desc}
+                                                </p>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Preferred Flatmate Gender */}
+                            <div className="space-y-2">
+                                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                    Who would you prefer to live with? <span className="text-rose-500">*</span>
+                                </label>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">
+                                    Gender identity and flatmate preference are separate fields. Both sides must agree for mutual compatibility:
+                                </p>
+                                <div className="grid gap-2.5 sm:grid-cols-3">
+                                    {[
+                                        { value: "female", label: "Female", desc: "Show female flatmate suggestions only." },
+                                        { value: "male", label: "Male", desc: "Show male flatmate suggestions only." },
+                                        { value: "unisex", label: "Unisex", desc: "Show compatible flatmates of all genders." },
+                                    ].map((opt) => {
+                                        const isSelected = (prefs.preferred_flatmate_gender || "unisex") === opt.value;
+                                        return (
+                                            <button
+                                                key={opt.value}
+                                                type="button"
+                                                onClick={() => setPrefs((prev) => ({ ...prev, preferred_flatmate_gender: opt.value }))}
+                                                className={`relative flex flex-col items-start p-3.5 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
+                                                    isSelected
+                                                        ? "border-brand-500 bg-brand-50/80 dark:bg-brand-950/40 text-slate-900 dark:text-slate-100 ring-2 ring-brand-500/30 shadow-xs"
+                                                        : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600"
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between w-full">
+                                                    <span className="text-sm font-semibold">{opt.label}</span>
+                                                    <span className={`h-4 w-4 rounded-full border flex items-center justify-center ${isSelected ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 dark:border-slate-600"}`}>
+                                                        {isSelected && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-snug">
+                                                    {opt.desc}
+                                                </p>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Preferred Location & Occupation */}
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                <Input
+                                    id="profile-location"
+                                    label="Preferred Living Location *"
+                                    placeholder="e.g. Koramangala, Bangalore or South Delhi"
+                                    value={prefs.location || ""}
+                                    onChange={(e) => setPrefs((prev) => ({ ...prev, location: e.target.value }))}
+                                    disabled={savingPrefs}
+                                    hint="The neighbourhood or city where you are looking to rent."
+                                />
+                                <Input
+                                    id="profile-occupation"
+                                    label="Occupation / Current Status *"
+                                    placeholder="e.g. Software Engineer, Medical Student"
+                                    value={prefs.occupation || ""}
+                                    onChange={(e) => setPrefs((prev) => ({ ...prev, occupation: e.target.value }))}
+                                    disabled={savingPrefs}
+                                    hint="Your current profession, student status, or field."
+                                />
+                            </div>
+
+                            {/* Budget Range & Flatmate Age Preferences */}
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                <div className="space-y-1.5">
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                        Monthly Rent Budget Range (₹) *
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <Input
+                                            id="profile-budget-min"
+                                            type="number"
+                                            placeholder="Min (e.g. 8000)"
+                                            value={prefs.budget_min ?? ""}
+                                            onChange={(e) => setPrefs((prev) => ({ ...prev, budget_min: e.target.value }))}
+                                            disabled={savingPrefs}
+                                        />
+                                        <Input
+                                            id="profile-budget-max"
+                                            type="number"
+                                            placeholder="Max (e.g. 16000)"
+                                            value={prefs.budget_max ?? ""}
+                                            onChange={(e) => setPrefs((prev) => ({ ...prev, budget_max: e.target.value }))}
+                                            disabled={savingPrefs}
+                                        />
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Expected rent per person.
+                                    </p>
+                                </div>
+
+                                <div className="space-y-1.5">
+                                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                                        Preferred Flatmate Age Range (Years)
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <Input
+                                            id="profile-age-min"
+                                            type="number"
+                                            placeholder="Min (e.g. 20)"
+                                            value={prefs.preferred_age_min ?? ""}
+                                            onChange={(e) => setPrefs((prev) => ({ ...prev, preferred_age_min: e.target.value }))}
+                                            disabled={savingPrefs}
+                                        />
+                                        <Input
+                                            id="profile-age-max"
+                                            type="number"
+                                            placeholder="Max (e.g. 30)"
+                                            value={prefs.preferred_age_max ?? ""}
+                                            onChange={(e) => setPrefs((prev) => ({ ...prev, preferred_age_max: e.target.value }))}
+                                            disabled={savingPrefs}
+                                        />
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                        Leave blank if open to flatmates of any adult age.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
                         {PREFERENCE_GROUPS.map((group) => {
                             const GroupIcon = group.icon;
                             return (

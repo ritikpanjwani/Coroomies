@@ -100,7 +100,6 @@ class ChoreUpdate(BaseModel):
     due_date: str | None = None
     due_day: int | None = Field(default=None, ge=0, le=6)
     recurring: str | None = None
-    status: str | None = None
 
     @field_validator("due_date")
     @classmethod
@@ -461,7 +460,7 @@ def update_chore(
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, group_id, status
+                SELECT id, group_id, created_by
                 FROM chores
                 WHERE id = %s
                 """,
@@ -471,7 +470,17 @@ def update_chore(
             if not row:
                 raise HTTPException(status_code=404, detail="Chore not found")
 
-            _require_membership(cursor, row[1], user_id)
+            membership = _require_membership(cursor, row[1], user_id)
+            is_admin = membership[1] == "admin"
+            is_creator = row[2] == user_id
+
+            # Editing task metadata changes another member's obligations and
+            # is therefore reserved for its creator or an active group admin.
+            if not is_admin and not is_creator:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only the chore creator or a group admin can edit this chore",
+                )
 
             fields = []
             values = []
@@ -483,8 +492,9 @@ def update_chore(
                 fields.append("description = %s")
                 values.append(update.description.strip())
             if update.assigned_to is not None:
-                # Only group admins may change who a duty is assigned to.
-                require_admin(cursor, row[1], user_id)
+                # Assignment changes are an admin-only operation.
+                if not is_admin:
+                    raise HTTPException(status_code=403, detail="Admin access required to reassign chores")
                 cursor.execute(
                     """
                     SELECT gm.user_id
@@ -511,12 +521,6 @@ def update_chore(
                     raise HTTPException(status_code=400, detail="Invalid recurrence type")
                 fields.append("recurring = %s")
                 values.append(update.recurring)
-            if update.status is not None:
-                if update.status not in ["pending", "completed"]:
-                    raise HTTPException(status_code=400, detail="Invalid status")
-                fields.append("status = %s")
-                values.append(update.status)
-
             if not fields:
                 raise HTTPException(status_code=400, detail="Nothing to update")
 

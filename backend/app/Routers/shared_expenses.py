@@ -1,5 +1,6 @@
 import re
 from collections import defaultdict
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -15,6 +16,21 @@ router = APIRouter(
     prefix="/shared-expenses",
     tags=["Shared Expenses"],
 )
+
+
+CENT = Decimal("0.01")
+
+
+def equal_split_amounts(amount: Decimal, member_ids: list[int]) -> list[tuple[int, Decimal]]:
+    """Split an amount exactly, distributing leftover paise deterministically."""
+    if not member_ids:
+        raise ValueError("At least one member is required")
+    total_paise = int((amount.quantize(CENT) * 100).to_integral_value())
+    base_paise, remainder = divmod(total_paise, len(member_ids))
+    return [
+        (member_id, Decimal(base_paise + (1 if index < remainder else 0)) / 100)
+        for index, member_id in enumerate(member_ids)
+    ]
 
 
 # -----------------------------
@@ -182,8 +198,8 @@ def create_shared_expense(
                         status_code=400,
                         detail="A share amount must be provided for every selected member",
                     )
-                custom_total = round(sum(item.amount for item in expense.amounts), 2)
-                if abs(custom_total - round(expense.amount, 2)) > 0.01:
+                custom_total = sum((item.amount for item in expense.amounts), Decimal("0")).quantize(CENT)
+                if custom_total != expense.amount.quantize(CENT):
                     raise HTTPException(
                         status_code=400,
                         detail="Custom share amounts must add up to the total amount",
@@ -194,10 +210,7 @@ def create_shared_expense(
                 ]
                 split_count = len(member_ids)
             else:
-                split_amount = round(expense.amount / len(member_ids), 2)
-                shares_data = [
-                    (uid, split_amount) for uid in member_ids
-                ]
+                shares_data = equal_split_amounts(expense.amount, member_ids)
                 split_count = len(member_ids)
 
             cursor.execute(
@@ -275,7 +288,7 @@ def create_shared_expense(
                 "expense_id": expense_id,
                 "total_amount": expense.amount,
                 "participants": len(member_ids),
-                "each_person_pays": round(expense.amount / len(member_ids), 2),
+                "each_person_pays": shares_data[0][1] if len({amount for _, amount in shares_data}) == 1 else None,
                 "shares": [
                     {
                         "user_id": uid,

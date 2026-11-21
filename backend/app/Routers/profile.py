@@ -1,10 +1,39 @@
+from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user_id
 from app.database import get_connection
 from app.schemas import ProfileCreate
+from app.profile_models import calculate_age_from_dob
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
+
+MANDATORY_FIELDS = [
+    ("Full Name", lambda u_name, p: bool(u_name and str(u_name).strip())),
+    ("Date of Birth (Age)", lambda u_name, p: bool(p.get("dob"))),
+    ("Gender", lambda u_name, p: bool(p.get("gender"))),
+    ("Preferred Flatmate Gender", lambda u_name, p: bool(p.get("preferred_flatmate_gender"))),
+    ("Location", lambda u_name, p: bool(p.get("location") and str(p.get("location")).strip())),
+    ("Budget Range", lambda u_name, p: p.get("budget_min") is not None or p.get("budget_max") is not None),
+    ("Occupation", lambda u_name, p: bool(p.get("occupation") and str(p.get("occupation")).strip())),
+    ("Smoking Preference", lambda u_name, p: bool(p.get("smoking_preference"))),
+    ("Drinking Preference", lambda u_name, p: bool(p.get("drinking_preference"))),
+    ("Food Preference", lambda u_name, p: bool(p.get("food_preferences"))),
+    ("Sleep Schedule", lambda u_name, p: bool(p.get("sleep_schedule"))),
+    ("Cleanliness Preference", lambda u_name, p: p.get("cleanliness") is not None),
+]
+
+
+def compute_profile_completeness(user_name: str | None, profile_dict: dict) -> tuple[bool, int, list[str]]:
+    missing = []
+    for field_name, validator in MANDATORY_FIELDS:
+        if not validator(user_name, profile_dict):
+            missing.append(field_name)
+
+    total_required = len(MANDATORY_FIELDS)
+    completed_count = total_required - len(missing)
+    percentage = int((completed_count / total_required) * 100)
+    return len(missing) == 0, percentage, missing
 
 
 @router.post("/")
@@ -27,47 +56,32 @@ def create_profile(
                     detail="Profile already exists. Use PUT to update.",
                 )
 
+            provided = profile.model_dump(exclude_unset=True)
+            cleaned_provided = {
+                k: (v.value if hasattr(v, "value") else v)
+                for k, v in provided.items()
+            }
+            allowed_columns = [
+                "sleep_schedule", "cleanliness", "noise_tolerance", "study_habits",
+                "smoking_preference", "food_preferences", "social_preferences", "guest_preferences",
+                "work_from_home", "study_environment", "pets_preference", "college", "degree",
+                "stream", "year", "dob", "gender", "preferred_flatmate_gender", "location",
+                "budget_min", "budget_max", "occupation", "drinking_preference",
+                "preferred_age_min", "preferred_age_max"
+            ]
+            columns = [c for c in allowed_columns if c in cleaned_provided]
+            values = [cleaned_provided[c] for c in columns]
+
+            insert_columns = ", ".join(["user_id"] + columns)
+            placeholders = ", ".join(["%s"] * (len(columns) + 1))
+
             cursor.execute(
-                """
-                INSERT INTO student_profiles (
-                    user_id,
-                    sleep_schedule,
-                    cleanliness,
-                    noise_tolerance,
-                    study_habits,
-                    smoking_preference,
-                    food_preferences,
-                    social_preferences,
-                    guest_preferences,
-                    work_from_home,
-                    study_environment,
-                    pets_preference,
-                    college,
-                    degree,
-                    stream,
-                    year
-                )
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                f"""
+                INSERT INTO student_profiles ({insert_columns})
+                VALUES ({placeholders})
                 RETURNING id
                 """,
-                (
-                    user_id,
-                    profile.sleep_schedule,
-                    profile.cleanliness,
-                    profile.noise_tolerance,
-                    profile.study_habits,
-                    profile.smoking_preference,
-                    profile.food_preferences,
-                    profile.social_preferences,
-                    profile.guest_preferences,
-                    profile.work_from_home,
-                    profile.study_environment,
-                    profile.pets_preference,
-                    profile.college,
-                    profile.degree,
-                    profile.stream,
-                    profile.year,
-                ),
+                [user_id] + values,
             )
 
             profile_id = cursor.fetchone()[0]
@@ -78,11 +92,11 @@ def create_profile(
     except HTTPException:
         connection.rollback()
         raise
-    except Exception:
+    except Exception as e:
         connection.rollback()
         raise HTTPException(
             status_code=500,
-            detail="Failed to create profile",
+            detail=f"Failed to create profile: {str(e)}",
         )
     finally:
         connection.close()
@@ -97,16 +111,17 @@ def update_profile(
 
     try:
         with connection.cursor() as cursor:
-            # Backward-compatible partial update: only columns explicitly
-            # present in the request are changed. Omitted fields keep their
-            # stored value, while a field explicitly sent as null is cleared.
             provided = profile.model_dump(exclude_unset=True)
+            cleaned_provided = {
+                k: (v.value if hasattr(v, "value") else v)
+                for k, v in provided.items()
+            }
             allowed_columns = set(ProfileCreate.model_fields)
-            columns = [c for c in provided if c in allowed_columns]
+            columns = [c for c in cleaned_provided if c in allowed_columns]
             if not columns:
                 raise HTTPException(status_code=400, detail="No fields to update")
 
-            values = [provided[c] for c in columns]
+            values = [cleaned_provided[c] for c in columns]
             insert_columns = ", ".join(["user_id"] + columns)
             placeholders = ", ".join(["%s"] * len(columns))
             updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns)
@@ -123,7 +138,6 @@ def update_profile(
             )
 
             updated = cursor.fetchone()
-
             connection.commit()
 
             return {
@@ -134,14 +148,71 @@ def update_profile(
     except HTTPException:
         connection.rollback()
         raise
-    except Exception:
+    except Exception as e:
         connection.rollback()
         raise HTTPException(
             status_code=500,
-            detail="Failed to update profile",
+            detail=f"Failed to update profile: {str(e)}",
         )
     finally:
         connection.close()
+
+
+@router.get("/completion-status")
+def get_profile_completion_status(
+    user_id: int = Depends(get_current_user_id),
+):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT name FROM users WHERE id = %s", (user_id,))
+            user_row = cursor.fetchone()
+            user_name = user_row[0] if user_row else None
+
+            cursor.execute(
+                """
+                SELECT
+                    dob, gender, preferred_flatmate_gender, location,
+                    budget_min, budget_max, occupation, smoking_preference,
+                    drinking_preference, food_preferences, sleep_schedule, cleanliness
+                FROM student_profiles
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                is_comp, pct, missing = compute_profile_completeness(user_name, {})
+                return {
+                    "is_complete": False,
+                    "completion_percentage": pct,
+                    "missing_fields": missing,
+                }
+
+            prof_dict = {
+                "dob": row[0],
+                "gender": row[1],
+                "preferred_flatmate_gender": row[2],
+                "location": row[3],
+                "budget_min": row[4],
+                "budget_max": row[5],
+                "occupation": row[6],
+                "smoking_preference": row[7],
+                "drinking_preference": row[8],
+                "food_preferences": row[9],
+                "sleep_schedule": row[10],
+                "cleanliness": row[11],
+            }
+
+            is_comp, pct, missing = compute_profile_completeness(user_name, prof_dict)
+            return {
+                "is_complete": is_comp,
+                "completion_percentage": pct,
+                "missing_fields": missing,
+            }
+    finally:
+        connection.close()
+
 
 @router.get("/")
 def get_profile(
@@ -151,6 +222,11 @@ def get_profile(
 
     try:
         with connection.cursor() as cursor:
+            cursor.execute("SELECT name, email FROM users WHERE id = %s", (user_id,))
+            user_row = cursor.fetchone()
+            user_name = user_row[0] if user_row else None
+            user_email = user_row[1] if user_row else None
+
             cursor.execute(
                 """
                 SELECT
@@ -168,7 +244,17 @@ def get_profile(
                     college,
                     degree,
                     stream,
-                    year
+                    year,
+                    dob,
+                    gender,
+                    preferred_flatmate_gender,
+                    location,
+                    budget_min,
+                    budget_max,
+                    occupation,
+                    drinking_preference,
+                    preferred_age_min,
+                    preferred_age_max
                 FROM student_profiles
                 WHERE user_id = %s
                 """,
@@ -178,12 +264,42 @@ def get_profile(
             profile = cursor.fetchone()
 
             if not profile:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Profile not found",
-                )
+                is_comp, pct, missing = compute_profile_completeness(user_name, {})
+                return {
+                    "name": user_name,
+                    "email": user_email,
+                    "sleep_schedule": None,
+                    "cleanliness": None,
+                    "noise_tolerance": None,
+                    "study_habits": None,
+                    "smoking_preference": None,
+                    "food_preferences": None,
+                    "social_preferences": None,
+                    "guest_preferences": None,
+                    "work_from_home": None,
+                    "study_environment": None,
+                    "pets_preference": None,
+                    "college": None,
+                    "degree": None,
+                    "stream": None,
+                    "year": None,
+                    "dob": None,
+                    "age": None,
+                    "gender": None,
+                    "preferred_flatmate_gender": None,
+                    "location": None,
+                    "budget_min": None,
+                    "budget_max": None,
+                    "occupation": None,
+                    "drinking_preference": None,
+                    "preferred_age_min": None,
+                    "preferred_age_max": None,
+                    "is_complete": False,
+                    "completion_percentage": pct,
+                    "missing_fields": missing,
+                }
 
-            return {
+            prof_dict = {
                 "sleep_schedule": profile[0],
                 "cleanliness": profile[1],
                 "noise_tolerance": profile[2],
@@ -199,7 +315,27 @@ def get_profile(
                 "degree": profile[12],
                 "stream": profile[13],
                 "year": profile[14],
+                "dob": profile[15].isoformat() if isinstance(profile[15], date) else (str(profile[15]) if profile[15] else None),
+                "age": calculate_age_from_dob(profile[15]),
+                "gender": profile[16],
+                "preferred_flatmate_gender": profile[17],
+                "location": profile[18],
+                "budget_min": profile[19],
+                "budget_max": profile[20],
+                "occupation": profile[21],
+                "drinking_preference": profile[22],
+                "preferred_age_min": profile[23],
+                "preferred_age_max": profile[24],
             }
+
+            is_comp, pct, missing = compute_profile_completeness(user_name, prof_dict)
+            prof_dict["name"] = user_name
+            prof_dict["email"] = user_email
+            prof_dict["is_complete"] = is_comp
+            prof_dict["completion_percentage"] = pct
+            prof_dict["missing_fields"] = missing
+
+            return prof_dict
 
     finally:
         connection.close()
@@ -210,7 +346,7 @@ def get_user_profile(
     target_user_id: int,
     current_user_id: int = Depends(get_current_user_id),
 ):
-    """View another user's public flatmate profile."""
+    """View another user's public flatmate profile. Strict privacy: DOB is never returned."""
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
@@ -251,13 +387,18 @@ def get_user_profile(
                 SELECT
                     sleep_schedule, cleanliness, noise_tolerance, study_habits,
                     smoking_preference, food_preferences, social_preferences, guest_preferences,
-                    work_from_home, study_environment, pets_preference, college, degree, stream, year
+                    work_from_home, study_environment, pets_preference, college, degree, stream, year,
+                    dob, gender, preferred_flatmate_gender, location, budget_min, budget_max,
+                    occupation, drinking_preference, preferred_age_min, preferred_age_max
                 FROM student_profiles
                 WHERE user_id = %s
                 """,
                 (target_user_id,),
             )
             profile = cursor.fetchone()
+
+            # DOB is deliberately excluded from public serialization for privacy.
+            age = calculate_age_from_dob(profile[15]) if profile else None
 
             return {
                 "user_id": user_row[0],
@@ -281,6 +422,16 @@ def get_user_profile(
                     "degree": profile[12] if profile else None,
                     "stream": profile[13] if profile else None,
                     "year": profile[14] if profile else None,
+                    "age": age,
+                    "gender": profile[16] if profile else None,
+                    "preferred_flatmate_gender": profile[17] if profile else None,
+                    "location": profile[18] if profile else None,
+                    "budget_min": profile[19] if profile else None,
+                    "budget_max": profile[20] if profile else None,
+                    "occupation": profile[21] if profile else None,
+                    "drinking_preference": profile[22] if profile else None,
+                    "preferred_age_min": profile[23] if profile else None,
+                    "preferred_age_max": profile[24] if profile else None,
                 } if profile else None,
             }
     finally:

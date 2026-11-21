@@ -3,6 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.auth import get_current_user_id
 from app.database import get_connection
 from app.notification_service import create_notification
+from app.matching import is_gender_compatible, is_age_compatible
+from app.profile_models import calculate_age_from_dob
+from app.Routers.profile import compute_profile_completeness
 
 router = APIRouter(
     prefix="/requests",
@@ -52,6 +55,83 @@ def send_request(
                     status_code=403,
                     detail="Cannot send request to this user",
                 )
+
+            # Verify sender's profile completeness
+            cursor.execute(
+                """
+                SELECT
+                    u.name, sp.dob, sp.gender, sp.preferred_flatmate_gender,
+                    sp.location, sp.budget_min, sp.budget_max, sp.occupation,
+                    sp.smoking_preference, sp.drinking_preference, sp.food_preferences,
+                    sp.sleep_schedule, sp.cleanliness, sp.preferred_age_min, sp.preferred_age_max
+                FROM users u
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                WHERE u.id = %s
+                """,
+                (sender_id,),
+            )
+            sender_row = cursor.fetchone()
+            if not sender_row:
+                raise HTTPException(status_code=400, detail="Sender not found")
+
+            sender_name = sender_row[0]
+            sender_prof = {
+                "dob": sender_row[1],
+                "gender": sender_row[2],
+                "preferred_flatmate_gender": sender_row[3],
+                "location": sender_row[4],
+                "budget_min": sender_row[5],
+                "budget_max": sender_row[6],
+                "occupation": sender_row[7],
+                "smoking_preference": sender_row[8],
+                "drinking_preference": sender_row[9],
+                "food_preferences": sender_row[10],
+                "sleep_schedule": sender_row[11],
+                "cleanliness": sender_row[12],
+                "preferred_age_min": sender_row[13],
+                "preferred_age_max": sender_row[14],
+            }
+            is_comp, _, missing = compute_profile_completeness(sender_name, sender_prof)
+            if not is_comp:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Please complete your mandatory profile details before sending connection requests. Missing: {', '.join(missing)}",
+                )
+
+            # Check receiver's gender and age preferences for mutual compatibility
+            cursor.execute(
+                """
+                SELECT
+                    sp.dob, sp.gender, sp.preferred_flatmate_gender,
+                    sp.preferred_age_min, sp.preferred_age_max
+                FROM student_profiles sp
+                WHERE sp.user_id = %s
+                """,
+                (receiver_id,),
+            )
+            rec_row = cursor.fetchone()
+            if rec_row:
+                rec_dob, rec_gender, rec_pref, rec_pamin, rec_pamax = rec_row
+                if not is_gender_compatible(sender_prof["gender"], sender_prof["preferred_flatmate_gender"], rec_gender, rec_pref):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot send request: roommate gender preferences are mutually incompatible.",
+                    )
+
+                sender_age = calculate_age_from_dob(sender_prof["dob"])
+                rec_age = calculate_age_from_dob(rec_dob)
+
+                if not is_age_compatible(rec_age, sender_prof["preferred_age_min"], sender_prof["preferred_age_max"]):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot send request: receiver age does not match your preferred age range.",
+                    )
+                if not is_age_compatible(sender_age, rec_pamin, rec_pamax):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Cannot send request: your age does not match receiver's preferred age range.",
+                    )
+
 
             # Check existing request (either direction, so mutual requests don't pile up)
             cursor.execute(

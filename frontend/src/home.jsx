@@ -361,9 +361,21 @@ function Home({ setPage }) {
 
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                                            <h3 className="truncate text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
-                                                {bestMatch.name}
-                                            </h3>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <h3 className="truncate text-base sm:text-lg font-bold text-slate-900 dark:text-slate-100">
+                                                    {bestMatch.name}
+                                                </h3>
+                                                {bestMatch.age && (
+                                                    <span className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-700/80 px-1.5 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                                        {bestMatch.age} yrs
+                                                    </span>
+                                                )}
+                                                {bestMatch.gender && bestMatch.gender !== "prefer_not_to_say" && (
+                                                    <span className="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-950/50 px-1.5 py-0.5 text-xs font-semibold text-brand-700 dark:text-brand-300 border border-brand-200/60 dark:border-brand-800/60">
+                                                        {bestMatch.gender.charAt(0).toUpperCase() + bestMatch.gender.slice(1)}
+                                                    </span>
+                                                )}
+                                            </div>
                                             <span
                                                 className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold text-white shrink-0 shadow-xs"
                                                 style={{
@@ -376,7 +388,12 @@ function Home({ setPage }) {
                                             </span>
                                         </div>
 
-                                        {(bestMatch.college || bestMatch.degree) ? (
+                                        {bestMatch.occupation ? (
+                                            <p className="truncate text-xs font-medium text-brand-600 dark:text-brand-400 mt-0.5">
+                                                {bestMatch.occupation}
+                                                {(bestMatch.degree || bestMatch.college) ? ` · ${[bestMatch.degree, bestMatch.college].filter(Boolean).join(" · ")}` : ""}
+                                            </p>
+                                        ) : (bestMatch.college || bestMatch.degree) ? (
                                             <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                                                 <GraduationCapIcon className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-500" />
                                                 <span className="truncate">
@@ -389,6 +406,25 @@ function Home({ setPage }) {
                                             <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
                                                 Flatmate candidate
                                             </p>
+                                        )}
+
+                                        {/* Location & Budget Pills */}
+                                        {(bestMatch.location || bestMatch.budget_min !== null || bestMatch.budget_max !== null) && (
+                                            <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-xs text-slate-500 dark:text-slate-400">
+                                                {bestMatch.location && (
+                                                    <span className="inline-flex items-center gap-1 truncate max-w-[150px]">
+                                                        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                                                        <span className="truncate">{bestMatch.location}</span>
+                                                    </span>
+                                                )}
+                                                {(bestMatch.budget_min !== null || bestMatch.budget_max !== null) && (
+                                                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                                                        {bestMatch.budget_min && bestMatch.budget_max
+                                                            ? `₹${bestMatch.budget_min.toLocaleString()} – ₹${bestMatch.budget_max.toLocaleString()}`
+                                                            : (bestMatch.budget_min ? `From ₹${bestMatch.budget_min.toLocaleString()}` : `Up to ₹${bestMatch.budget_max.toLocaleString()}`)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                 </div>

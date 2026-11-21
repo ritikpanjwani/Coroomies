@@ -63,69 +63,41 @@ def calculate_match(profile1, profile2):
 
 
 def stable_match(preferences):
-    """Gale-Shapley deferred-acceptance stable matching.
+    """Return deterministic, mutually acceptable, one-to-one roommate pairs.
 
-    `preferences` maps a user_id to an ordered list of preferred user_ids
-    (best first). Returns the set of stable pairs and any unmatched users.
+    Gale-Shapley is only valid for two disjoint populations.  CoRoomies has a
+    single roommate population, so treating every member as both a proposer
+    and an acceptor could put the same person in multiple pairs.  This helper
+    instead forms an undirected candidate graph and greedily selects the best
+    mutually ranked edge while never reusing a member.  It deliberately keeps
+    the public function name for API compatibility.
     """
-    proposers = list(preferences.keys())
-    acceptors = {uid for prefs in preferences.values() for uid in prefs}
-
-    # For each proposer, index of next preference to propose to.
-    next_proposal = {uid: 0 for uid in proposers}
-    # Current engagement of each acceptor (who they've tentatively accepted).
-    engaged = {}
-    # Acceptor's rank of a given proposer (lower is better).
-    acceptor_rank = {
-        acc: {uid: idx for idx, uid in enumerate(prefs)}
-        for acc, prefs in [(uid, preferences.get(uid, [])) for uid in acceptors]
+    user_ids = sorted(preferences)
+    ranks = {
+        uid: {candidate: index for index, candidate in enumerate(candidates)}
+        for uid, candidates in preferences.items()
     }
 
-    free = [uid for uid in proposers if uid not in engaged.values()]
-
-    while free:
-        proposer = free.pop(0)
-        prefs = preferences.get(proposer, [])
-        if next_proposal[proposer] >= len(prefs):
-            continue
-
-        target = prefs[next_proposal[proposer]]
-        next_proposal[proposer] += 1
-
-        current = engaged.get(target)
-        if current is None:
-            engaged[target] = proposer
-        else:
-            # Does target prefer proposer over current?
-            rank_new = acceptor_rank.get(target, {}).get(proposer, float("inf"))
-            rank_old = acceptor_rank.get(target, {}).get(current, float("inf"))
-            if rank_new < rank_old:
-                engaged[target] = proposer
-                free.append(current)
-            else:
-                free.append(proposer)
-
-    pairs = [(proposer, acceptor) for acceptor, proposer in engaged.items()]
-
-    # Mutual engagements may appear twice as (a, b) and (b, a).
-    # Deduplicate into undirected pairs so each user appears exactly once.
-    seen = set()
-    unique_pairs = []
-    for a, b in pairs:
-        key = (min(a, b), max(a, b))
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_pairs.append(key)
+    edges = []
+    for user_id in user_ids:
+        for candidate_id, my_rank in ranks[user_id].items():
+            if candidate_id <= user_id or candidate_id not in ranks:
+                continue
+            candidate_rank = ranks[candidate_id].get(user_id)
+            if candidate_rank is None:
+                continue
+            # Lower combined rank is better; IDs make ties deterministic.
+            edges.append((my_rank + candidate_rank, max(my_rank, candidate_rank), user_id, candidate_id))
 
     matched = set()
-    for a, b in unique_pairs:
-        matched.add(a)
-        matched.add(b)
+    pairs = []
+    for _combined_rank, _worst_rank, user_id, candidate_id in sorted(edges):
+        if user_id in matched or candidate_id in matched:
+            continue
+        pairs.append((user_id, candidate_id))
+        matched.update((user_id, candidate_id))
 
-    unmatched = [uid for uid in proposers if uid not in matched]
-
-    return unique_pairs, unmatched
+    return pairs, [uid for uid in user_ids if uid not in matched]
 
 
 def find_blocking_pairs(preferences, pairs):
@@ -178,3 +150,74 @@ def find_blocking_pairs(preferences, pairs):
                 })
 
     return blocking
+
+
+def is_gender_compatible(
+    my_gender: str | None,
+    my_pref: str | None,
+    other_gender: str | None,
+    other_pref: str | None,
+) -> bool:
+    """Check mutual gender compatibility between two users.
+
+    Rules:
+    - User A's preference dictates who User A is willing to live with:
+        * 'unisex': accepts all genders ('male', 'female', 'prefer_not_to_say').
+        * 'male': accepts only 'male'.
+        * 'female': accepts only 'female'.
+    - User B's preference dictates who User B is willing to live with similarly.
+    - Mutual compatibility requires that User A accepts User B's gender AND User B accepts User A's gender.
+    - If either user's gender or preference is not set (e.g. legacy/incomplete profile),
+      they cannot be verified as mutually compatible.
+    - Users with 'prefer_not_to_say' for gender can only be matched with users who selected 'unisex'.
+    """
+    if not my_gender or not my_pref or not other_gender or not other_pref:
+        return False
+
+    mg = my_gender.strip().lower()
+    mp = my_pref.strip().lower()
+    og = other_gender.strip().lower()
+    op = other_pref.strip().lower()
+
+    # Does 'my' preference accept 'other'?
+    if mp == "unisex":
+        my_accepts_other = True
+    elif mp == "male":
+        my_accepts_other = (og == "male")
+    elif mp == "female":
+        my_accepts_other = (og == "female")
+    else:
+        my_accepts_other = False
+
+    # Does 'other' preference accept 'me'?
+    if op == "unisex":
+        other_accepts_me = True
+    elif op == "male":
+        other_accepts_me = (mg == "male")
+    elif op == "female":
+        other_accepts_me = (mg == "female")
+    else:
+        other_accepts_me = False
+
+    return my_accepts_other and other_accepts_me
+
+
+def is_age_compatible(
+    candidate_age: int | None,
+    min_age: int | None = None,
+    max_age: int | None = None,
+) -> bool:
+    """Check if candidate age satisfies specified age limits.
+
+    If candidate_age is None, they are excluded when an age filter is active.
+    If no bounds are provided, candidate is accepted.
+    """
+    if min_age is None and max_age is None:
+        return True
+    if candidate_age is None:
+        return False
+    if min_age is not None and candidate_age < min_age:
+        return False
+    if max_age is not None and candidate_age > max_age:
+        return False
+    return True

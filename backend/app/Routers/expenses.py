@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.auth import get_current_user_id
 from app.database import get_connection
-from app.schemas import ExpenseCreate, MoneyAmount, normalize_category
+from app.schemas import ExpenseCreate, MoneyAmount, normalize_category, validate_iso_date
 from app.timeutils import local_today
 
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
@@ -45,18 +45,7 @@ class ExpenseUpdate(BaseModel):
     @field_validator("expense_date")
     @classmethod
     def validate_date(cls, v):
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-            raise ValueError("Date must be in YYYY-MM-DD format")
-        try:
-            parts = v.split("-")
-            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
-            if month < 1 or month > 12:
-                raise ValueError("Invalid month")
-            if day < 1 or day > 31:
-                raise ValueError("Invalid day")
-        except (ValueError, IndexError):
-            raise ValueError("Invalid date format")
-        return v
+        return validate_iso_date(v)
 
 
 class BudgetUpdate(BaseModel):
@@ -89,18 +78,7 @@ class RecurringExpenseCreate(BaseModel):
     def validate_date(cls, v):
         if v is None:
             return v
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-            raise ValueError("Date must be in YYYY-MM-DD format")
-        try:
-            parts = v.split("-")
-            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
-            if month < 1 or month > 12:
-                raise ValueError("Invalid month")
-            if day < 1 or day > 31:
-                raise ValueError("Invalid day")
-        except (ValueError, IndexError):
-            raise ValueError("Invalid date format")
-        return v
+        return validate_iso_date(v)
 
 
 class RecurringExpenseUpdate(BaseModel):
@@ -129,18 +107,7 @@ class RecurringExpenseUpdate(BaseModel):
     def validate_date(cls, v):
         if v is None:
             return v
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-            raise ValueError("Date must be in YYYY-MM-DD format")
-        try:
-            parts = v.split("-")
-            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
-            if month < 1 or month > 12:
-                raise ValueError("Invalid month")
-            if day < 1 or day > 31:
-                raise ValueError("Invalid day")
-        except (ValueError, IndexError):
-            raise ValueError("Invalid date format")
-        return v
+        return validate_iso_date(v)
 
 
 # -----------------------------

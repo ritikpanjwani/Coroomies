@@ -43,6 +43,8 @@ import {
     ChevronUpIcon,
     ChevronDownIcon,
     ArrowLeftRightIcon,
+    SlidersHorizontalIcon,
+    ArrowRightIcon,
 } from "./components/Icons";
 
 import { errorMessage, formatCurrency } from "./utils/format";
@@ -93,18 +95,48 @@ function MatchDetail({ match, relState, onClose, onSendRequest, onOpenRequests, 
             <div className="flex items-center gap-4">
                 <Avatar name={match.name} size="xl" />
                 <div className="min-w-0 flex-1">
-                    <h3 className="truncate text-xl font-bold text-slate-900 dark:text-slate-100">
-                        {match.name}
-                    </h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="truncate text-xl font-bold text-slate-900 dark:text-slate-100">
+                            {match.name}
+                        </h3>
+                        {match.age && (
+                            <span className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-700 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                                {match.age} yrs
+                            </span>
+                        )}
+                        {match.gender && match.gender !== "prefer_not_to_say" && (
+                            <span className="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-950/50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:text-brand-300 border border-brand-200/60 dark:border-brand-800/60">
+                                {match.gender.charAt(0).toUpperCase() + match.gender.slice(1)}
+                            </span>
+                        )}
+                    </div>
+                    {match.occupation && (
+                        <p className="text-xs font-semibold text-brand-600 dark:text-brand-400 mt-0.5">
+                            {match.occupation}
+                        </p>
+                    )}
                     {(match.college || match.degree) && (
-                        <p className="truncate text-xs font-medium text-brand-600 dark:text-brand-400 mt-0.5">
+                        <p className="truncate text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                             {[match.degree, match.stream, match.college].filter(Boolean).join(" · ")}
                         </p>
                     )}
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                        {compatibilityLabel(match.compatibility)}
-                    </p>
-                    <div className="mt-2 flex items-center gap-2">
+                    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+                        {match.location && (
+                            <span className="inline-flex items-center gap-1">
+                                <MapPinIcon className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                {match.location}
+                            </span>
+                        )}
+                        {(match.budget_min !== null || match.budget_max !== null) && (
+                            <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+                                <WalletIcon className="h-3.5 w-3.5 shrink-0" />
+                                {match.budget_min && match.budget_max
+                                    ? `₹${match.budget_min.toLocaleString()} – ₹${match.budget_max.toLocaleString()}`
+                                    : (match.budget_min ? `From ₹${match.budget_min.toLocaleString()}` : `Up to ₹${match.budget_max.toLocaleString()}`)}
+                            </span>
+                        )}
+                    </div>
+                    <div className="mt-2.5 flex items-center gap-2">
                         <div className="h-2 max-w-[9rem] flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                             <div
                                 className={`h-full rounded-full bg-gradient-to-r ${compatibilityTailwind(
@@ -114,7 +146,7 @@ function MatchDetail({ match, relState, onClose, onSendRequest, onOpenRequests, 
                             />
                         </div>
                         <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                            {match.compatibility}%
+                            {match.compatibility}% ({compatibilityLabel(match.compatibility)})
                         </span>
                     </div>
                 </div>
@@ -815,22 +847,29 @@ function RequestsPanel({ setPage, activeSubtab, onSubtabChange }) {
 
 
 function CandidatesPanel({ setPage, onOpenRequests }) {
-
     const [allMatches, setAllMatches] = useState([]);
-
     const [loading, setLoading] = useState(true);
-
     const [refreshing, setRefreshing] = useState(false);
-
     const [sortBy, setSortBy] = useState("compatibility");
 
+    // Discovery Filters
     const [filterMinScore, setFilterMinScore] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
+    const [genderFilter, setGenderFilter] = useState("all"); // "all" | "female" | "male"
+    const [minAgeFilter, setMinAgeFilter] = useState("");
+    const [maxAgeFilter, setMaxAgeFilter] = useState("");
+    const [locationFilter, setLocationFilter] = useState("");
+    const [minBudgetFilter, setMinBudgetFilter] = useState("");
+    const [maxBudgetFilter, setMaxBudgetFilter] = useState("");
+    const [lifestyleFilter, setLifestyleFilter] = useState("all");
+    const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+    // Profile completion requirement status from server
+    const [profileIncomplete, setProfileIncomplete] = useState(false);
+    const [missingFields, setMissingFields] = useState([]);
 
     const [detailMatch, setDetailMatch] = useState(null);
-
     const [requestTarget, setRequestTarget] = useState(null);
-
     const [sending, setSending] = useState(false);
 
     // user_id -> status of a request I sent them ("pending"/"accepted"/"rejected")
@@ -852,35 +891,117 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
 
     const toast = useToast();
 
+    const hasActiveFilters = Boolean(
+        searchQuery ||
+        genderFilter !== "all" ||
+        minAgeFilter !== "" ||
+        maxAgeFilter !== "" ||
+        locationFilter ||
+        minBudgetFilter !== "" ||
+        maxBudgetFilter !== "" ||
+        lifestyleFilter !== "all" ||
+        filterMinScore > 0
+    );
 
+    const handleResetFilters = () => {
+        setSearchQuery("");
+        setGenderFilter("all");
+        setMinAgeFilter("");
+        setMaxAgeFilter("");
+        setLocationFilter("");
+        setMinBudgetFilter("");
+        setMaxBudgetFilter("");
+        setLifestyleFilter("all");
+        setFilterMinScore(0);
+        setSortBy("compatibility");
+    };
 
-        const matches = useMemo(() => {
+    const matches = useMemo(() => {
         let list = [...allMatches];
+
+        // Search text
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
             list = list.filter((m) =>
                 m.name?.toLowerCase().includes(q) ||
                 m.college?.toLowerCase().includes(q) ||
                 m.degree?.toLowerCase().includes(q) ||
-                m.stream?.toLowerCase().includes(q)
+                m.stream?.toLowerCase().includes(q) ||
+                m.location?.toLowerCase().includes(q) ||
+                m.occupation?.toLowerCase().includes(q)
             );
         }
+
+        // Gender filter
+        if (genderFilter !== "all") {
+            list = list.filter((m) => m.gender?.toLowerCase() === genderFilter.toLowerCase());
+        }
+
+        // Age bounds
+        if (minAgeFilter !== "") {
+            const minA = Number(minAgeFilter);
+            if (!isNaN(minA)) {
+                list = list.filter((m) => m.age !== null && m.age !== undefined && m.age >= minA);
+            }
+        }
+        if (maxAgeFilter !== "") {
+            const maxA = Number(maxAgeFilter);
+            if (!isNaN(maxA)) {
+                list = list.filter((m) => m.age !== null && m.age !== undefined && m.age <= maxA);
+            }
+        }
+
+        // Location
+        if (locationFilter.trim()) {
+            const lq = locationFilter.trim().toLowerCase();
+            list = list.filter((m) => m.location?.toLowerCase().includes(lq));
+        }
+
+        // Budget
+        if (minBudgetFilter !== "") {
+            const minB = Number(minBudgetFilter);
+            if (!isNaN(minB)) {
+                list = list.filter((m) => m.budget_max === null || m.budget_max === undefined || m.budget_max >= minB);
+            }
+        }
+        if (maxBudgetFilter !== "") {
+            const maxB = Number(maxBudgetFilter);
+            if (!isNaN(maxB)) {
+                list = list.filter((m) => m.budget_min === null || m.budget_min === undefined || m.budget_min <= maxB);
+            }
+        }
+
+        // Lifestyle filter
+        if (lifestyleFilter !== "all") {
+            if (lifestyleFilter === "non_smoker") {
+                list = list.filter((m) => m.smoking_preference === "non_smoker");
+            } else if (lifestyleFilter === "vegetarian") {
+                list = list.filter((m) => m.food_preferences === "vegetarian" || m.food_preferences === "vegan");
+            } else if (lifestyleFilter === "non_drinker") {
+                list = list.filter((m) => m.drinking_preference === "non_drinker");
+            } else if (lifestyleFilter === "early_bird") {
+                list = list.filter((m) => m.sleep_schedule === "early");
+            }
+        }
+
+        // Compatibility score threshold
+        list = list.filter((m) => m.compatibility >= filterMinScore);
+
+        // Sorting
         if (sortBy === "compatibility") {
             list.sort((a, b) => b.compatibility - a.compatibility);
         } else if (sortBy === "name") {
             list.sort((a, b) => a.name.localeCompare(b.name));
+        } else if (sortBy === "age_asc") {
+            list.sort((a, b) => (a.age || 999) - (b.age || 999));
         }
-        return list.filter((m) => m.compatibility >= filterMinScore);
-    }, [allMatches, searchQuery, sortBy, filterMinScore]);
 
-
+        return list;
+    }, [allMatches, searchQuery, genderFilter, minAgeFilter, maxAgeFilter, locationFilter, minBudgetFilter, maxBudgetFilter, lifestyleFilter, filterMinScore, sortBy]);
 
     const loadMatches = useCallback(
-
         async (showLoading = false) => {
-
             try {
-
                 if (showLoading) setLoading(true);
 
                 const [response, reqRes] = await Promise.all([
@@ -888,7 +1009,11 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                     api.get("/requests/").catch(() => null),
                 ]);
 
-                setAllMatches(response.data.matches || []);
+                if (response?.data) {
+                    setAllMatches(response.data.matches || []);
+                    setProfileIncomplete(Boolean(response.data.profile_incomplete));
+                    setMissingFields(response.data.missing_fields || []);
+                }
 
                 if (reqRes && reqRes.data) {
                     const sent = {};
@@ -902,23 +1027,14 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                     setSentStatus(sent);
                     setReceivedStatus(received);
                 }
-
             } catch (error) {
-
                 console.error(error.response?.data);
-
             } finally {
-
                 setLoading(false);
-
                 setRefreshing(false);
-
             }
-
         },
-
         []
-
     );
 
 
@@ -1066,122 +1182,281 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
 
         <>
 
-            {/* Controls */}
-            <Card className="mb-6 p-3.5 sm:p-5">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-                    <div className="w-full lg:flex-1">
-                        <Input
-                            label="Search flatmates"
-                            placeholder="Filter by name, college, or course..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5 sm:flex sm:items-end sm:gap-3 lg:shrink-0">
-                        <div className="w-full sm:w-40">
-                            <Select
-                                label="Sort by"
-                                value={sortBy}
-                                onChange={(e) => setSortBy(e.target.value)}
-                            >
-                                <option value="compatibility">Compatibility</option>
-                                <option value="name">Name (A–Z)</option>
-                            </Select>
+            {/* Profile Completion Guidance Banner */}
+            {profileIncomplete && (
+                <div className="mb-6 rounded-2xl border border-amber-200/90 bg-gradient-to-r from-amber-50 to-orange-50 dark:border-amber-900/50 dark:from-amber-950/30 dark:to-orange-950/20 p-4 sm:p-5 shadow-xs">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs">
+                                <InfoIcon className="h-5 w-5" />
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-bold text-amber-900 dark:text-amber-200">
+                                    Complete your profile to unlock compatible flatmate recommendations
+                                </h3>
+                                <p className="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+                                    We match roommates based on mutually preferred gender, verified age, and routine compatibility.
+                                </p>
+                                {missingFields.length > 0 && (
+                                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                        <span className="text-[11px] font-semibold text-amber-800/80 dark:text-amber-300/80">Missing:</span>
+                                        {missingFields.map((f, i) => (
+                                            <span key={i} className="inline-flex items-center gap-1 rounded-md bg-white/90 dark:bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800/60 shadow-2xs">
+                                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                                {f}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                        <div className="w-full sm:w-44">
-                            <label className="mb-1.5 block text-xs font-medium text-slate-700 dark:text-slate-300">
-                                Min score: <span className="font-semibold text-brand-600 dark:text-brand-400">{filterMinScore}%</span>
-                            </label>
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="10"
-                                value={filterMinScore}
-                                onChange={(e) => setFilterMinScore(Number(e.target.value))}
-                                className="w-full accent-brand-500 h-8"
+                        <Button
+                            size="sm"
+                            onClick={() => setPage && setPage("profile")}
+                            className="shrink-0 self-start sm:self-auto bg-amber-600 hover:bg-amber-700 text-white border-transparent shadow-xs"
+                        >
+                            <span>Complete Profile</span>
+                            <ArrowRightIcon className="h-3.5 w-3.5" />
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Filter Controls Card */}
+            <Card className="mb-6 p-4 sm:p-5">
+                <div className="space-y-3.5">
+                    {/* Primary Bar: Search, Sort, Toggle Filters, Refresh */}
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                        <div className="w-full lg:flex-1">
+                            <Input
+                                label="Search flatmates"
+                                placeholder="Search by name, location, occupation, college..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
+                        <div className="grid grid-cols-2 gap-2.5 sm:flex sm:items-end sm:gap-3 lg:shrink-0">
+                            <div className="w-full sm:w-40">
+                                <Select
+                                    label="Sort by"
+                                    value={sortBy}
+                                    onChange={(e) => setSortBy(e.target.value)}
+                                >
+                                    <option value="compatibility">Compatibility</option>
+                                    <option value="name">Name (A–Z)</option>
+                                    <option value="age_asc">Age (Youngest first)</option>
+                                </Select>
+                            </div>
+                            <Button
+                                variant={showAdvancedFilters || hasActiveFilters ? "brand" : "secondary"}
+                                size="sm"
+                                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                                className="min-h-[42px] justify-center"
+                            >
+                                <SlidersHorizontalIcon className="h-4 w-4" />
+                                <span>Filters</span>
+                                {hasActiveFilters && (
+                                    <span className="ml-1 inline-flex h-2 w-2 rounded-full bg-white dark:bg-brand-400" />
+                                )}
+                            </Button>
+                        </div>
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleRefresh}
+                            loading={refreshing}
+                            className="w-full lg:w-auto shrink-0 min-h-[42px] justify-center"
+                        >
+                            <RefreshCwIcon className="h-4 w-4" />
+                            <span>{refreshing ? "Refreshing..." : "Refresh"}</span>
+                        </Button>
                     </div>
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleRefresh}
-                        loading={refreshing}
-                        className="w-full lg:w-auto shrink-0 min-h-[42px]"
-                    >
-                        <RefreshCwIcon className="h-4 w-4" />
-                        {refreshing ? "Refreshing..." : "Refresh"}
-                    </Button>
+
+                    {/* Advanced Filters Drawer */}
+                    {showAdvancedFilters && (
+                        <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/70 dark:bg-slate-800/40 p-4 space-y-4 pt-4">
+                            <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+                                {/* Gender Filter */}
+                                <Select
+                                    label="Gender"
+                                    value={genderFilter}
+                                    onChange={(e) => setGenderFilter(e.target.value)}
+                                >
+                                    <option value="all">All Eligible Genders</option>
+                                    <option value="female">Female only</option>
+                                    <option value="male">Male only</option>
+                                </Select>
+
+                                {/* Location Filter */}
+                                <Input
+                                    label="Location"
+                                    placeholder="e.g. Bangalore, Mumbai"
+                                    value={locationFilter}
+                                    onChange={(e) => setLocationFilter(e.target.value)}
+                                />
+
+                                {/* Age Range */}
+                                <div>
+                                    <label className="mb-1.5 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                        Age Range
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            placeholder="Min (18)"
+                                            value={minAgeFilter}
+                                            onChange={(e) => setMinAgeFilter(e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                                        />
+                                        <span className="text-slate-400 text-xs">to</span>
+                                        <input
+                                            type="number"
+                                            placeholder="Max (35)"
+                                            value={maxAgeFilter}
+                                            onChange={(e) => setMaxAgeFilter(e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Lifestyle Highlights */}
+                                <Select
+                                    label="Lifestyle Highlights"
+                                    value={lifestyleFilter}
+                                    onChange={(e) => setLifestyleFilter(e.target.value)}
+                                >
+                                    <option value="all">All Lifestyles</option>
+                                    <option value="non_smoker">Non-smoker only</option>
+                                    <option value="vegetarian">Vegetarian / Vegan</option>
+                                    <option value="non_drinker">Non-drinker only</option>
+                                    <option value="early_bird">Early bird rhythm</option>
+                                </Select>
+                            </div>
+
+                            {/* Row 2: Budget & Min Score Slider */}
+                            <div className="grid gap-4 sm:grid-cols-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                                <div>
+                                    <label className="mb-1.5 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                                        Budget Range (₹/month)
+                                    </label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="number"
+                                            placeholder="Min ₹"
+                                            value={minBudgetFilter}
+                                            onChange={(e) => setMinBudgetFilter(e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                                        />
+                                        <span className="text-slate-400 text-xs">to</span>
+                                        <input
+                                            type="number"
+                                            placeholder="Max ₹"
+                                            value={maxBudgetFilter}
+                                            onChange={(e) => setMaxBudgetFilter(e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                                            Min Compatibility Score:
+                                        </label>
+                                        <span className="text-xs font-bold text-brand-600 dark:text-brand-400">{filterMinScore}%</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        step="10"
+                                        value={filterMinScore}
+                                        onChange={(e) => setFilterMinScore(Number(e.target.value))}
+                                        className="w-full accent-brand-500 h-8"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Reset button */}
+                            {hasActiveFilters && (
+                                <div className="flex justify-end pt-1">
+                                    <button
+                                        type="button"
+                                        onClick={handleResetFilters}
+                                        className="text-xs font-medium text-brand-600 dark:text-brand-400 hover:underline cursor-pointer"
+                                    >
+                                        Clear all filters
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </Card>
 
-
-
             {matches.length === 0 ? (
-
                 <Card>
-
                     <EmptyState
-
                         icon={<UsersRoundIcon className="h-6 w-6" />}
-
                         title={
-
-                            filterMinScore > 0
-
-                                ? "No matches above your threshold"
-
+                            filterMinScore > 0 || hasActiveFilters
+                                ? "No matches matching your filters"
                                 : "No matches found"
-
                         }
-
                         description={
-
-                            filterMinScore > 0
-
-                                ? "Try lowering the minimum compatibility or refreshing."
-
+                            filterMinScore > 0 || hasActiveFilters
+                                ? "Try adjusting or clearing your filters to see more flatmates."
                                 : "Complete your profile preferences to start finding compatible roommates."
-
                         }
-
                     >
-
-                        {filterMinScore <= 0 && (
-
-                            <Button onClick={() => setPage("profile")}>
-
-                                <UserRoundIcon className="h-4 w-4" />
-
-                                Complete my profile
-
+                        {hasActiveFilters ? (
+                            <Button variant="secondary" onClick={handleResetFilters}>
+                                Clear filters
                             </Button>
-
+                        ) : (
+                            <Button onClick={() => setPage("profile")}>
+                                <UserRoundIcon className="h-4 w-4" />
+                                Complete my profile
+                            </Button>
                         )}
-
                     </EmptyState>
-
                 </Card>
-
             ) : (
-
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-
                     {matches.map((match) => (
                         <Card
                             key={match.user_id}
-                            className="flex flex-col justify-between p-4 sm:p-5 overflow-hidden"
+                            className="flex flex-col justify-between p-4 sm:p-5 overflow-hidden transition-all duration-200 hover:shadow-md"
                         >
                             <div className="space-y-3.5">
-                                {/* Header: Avatar, Name, Academic Info */}
+                                {/* Header: Avatar, Name, Age & Gender Badges, Academic/Occupation Info */}
                                 <div className="flex items-start gap-3 min-w-0">
                                     <Avatar name={match.name} size="lg" className="rounded-full shrink-0" />
                                     <div className="min-w-0 flex-1">
-                                        <h3 className="truncate text-base font-bold text-slate-900 dark:text-slate-100">
-                                            {match.name}
-                                        </h3>
-                                        {(match.college || match.degree) ? (
+                                        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                                            <h3 className="truncate text-base font-bold text-slate-900 dark:text-slate-100">
+                                                {match.name}
+                                            </h3>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                {match.age && (
+                                                    <span className="inline-flex items-center rounded-md bg-slate-100 dark:bg-slate-700/80 px-1.5 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200">
+                                                        {match.age} yrs
+                                                    </span>
+                                                )}
+                                                {match.gender && match.gender !== "prefer_not_to_say" && (
+                                                    <span className="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-950/50 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700 dark:text-brand-300 border border-brand-200/60 dark:border-brand-800/60">
+                                                        {match.gender.charAt(0).toUpperCase() + match.gender.slice(1)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {match.occupation ? (
+                                            <p className="truncate text-xs font-medium text-brand-600 dark:text-brand-400 mt-0.5">
+                                                {match.occupation}
+                                                {(match.degree || match.college) ? ` · ${[match.degree, match.college].filter(Boolean).join(" · ")}` : ""}
+                                            </p>
+                                        ) : (match.college || match.degree) ? (
                                             <p className="truncate text-xs font-medium text-brand-600 dark:text-brand-400 mt-0.5">
                                                 {[match.degree, match.stream, match.college].filter(Boolean).join(" · ")}
                                             </p>
@@ -1190,6 +1465,26 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                                                 Flatmate candidate
                                             </p>
                                         )}
+
+                                        {/* Location & Budget Pills */}
+                                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                            {match.location && (
+                                                <span className="inline-flex items-center gap-1 text-slate-600 dark:text-slate-300 truncate max-w-[140px]">
+                                                    <MapPinIcon className="h-3 w-3 text-slate-400 shrink-0" />
+                                                    <span className="truncate">{match.location}</span>
+                                                </span>
+                                            )}
+                                            {(match.budget_min !== null || match.budget_max !== null) && (
+                                                <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                                                    <WalletIcon className="h-3 w-3 shrink-0" />
+                                                    <span>
+                                                        {match.budget_min && match.budget_max
+                                                            ? `₹${match.budget_min.toLocaleString()} – ₹${match.budget_max.toLocaleString()}`
+                                                            : (match.budget_min ? `From ₹${match.budget_min.toLocaleString()}` : `Up to ₹${match.budget_max.toLocaleString()}`)}
+                                                    </span>
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1237,9 +1532,7 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                             </div>
                         </Card>
                     ))}
-
                 </div>
-
             )}
 
 
@@ -1470,13 +1763,13 @@ function StableMatchPanel() {
 
                         <SparklesIcon className="h-4 w-4 text-brand-500" />
 
-                        Gale-Shapley stable matching
+                        One-to-one compatible pairing
 
                     </p>
 
                     <p className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">
 
-                        Algorithmically stable roommate pairs + blocking-pair detection.
+                        Mutually compatible roommate pairs with better-pair detection.
 
                     </p>
 

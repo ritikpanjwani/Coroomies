@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.auth import get_current_user_id, get_current_user_id_flexible
+from app.auth import get_current_user_id
 from app.database import get_connection
 from app.media_validation import (
     InvalidMediaError,
@@ -439,7 +439,7 @@ async def send_media_message(
 @router.get("/media/{attachment_id}")
 def get_media(
     attachment_id: int,
-    current_user_id: int = Depends(get_current_user_id_flexible),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """Retrieve and stream protected media file with participant verification."""
     connection = get_connection()

@@ -4,7 +4,9 @@ from pydantic import BaseModel, Field
 from app.auth import get_current_user_id
 from app.database import get_connection
 from app.group_auth import require_active_member
-from app.matching import stable_match, find_blocking_pairs
+from app.matching import stable_match, find_blocking_pairs, is_gender_compatible, is_age_compatible
+from app.profile_models import calculate_age_from_dob
+from app.Routers.profile import compute_profile_completeness
 
 router = APIRouter(
     prefix="/matches",
@@ -113,56 +115,114 @@ def compare_preferences(my_profile, other_profile):
 
 @router.get("/")
 def get_matches(
+    gender: str | None = None,
+    min_age: int | None = None,
+    max_age: int | None = None,
+    location: str | None = None,
+    min_budget: int | None = None,
+    max_budget: int | None = None,
     user_id: int = Depends(get_current_user_id),
 ):
+    if min_age is not None and not 18 <= min_age <= 100:
+        raise HTTPException(status_code=422, detail="min_age must be between 18 and 100")
+    if max_age is not None and not 18 <= max_age <= 100:
+        raise HTTPException(status_code=422, detail="max_age must be between 18 and 100")
+    if min_age is not None and max_age is not None and min_age > max_age:
+        raise HTTPException(status_code=422, detail="min_age cannot exceed max_age")
+    if min_budget is not None and min_budget < 0:
+        raise HTTPException(status_code=422, detail="min_budget cannot be negative")
+    if max_budget is not None and max_budget < 0:
+        raise HTTPException(status_code=422, detail="max_budget cannot be negative")
+    if min_budget is not None and max_budget is not None and min_budget > max_budget:
+        raise HTTPException(status_code=422, detail="min_budget cannot exceed max_budget")
+
     connection = get_connection()
 
     try:
         with connection.cursor() as cursor:
-
-            # Get current user's profile
+            # Get current user's profile and user record
             cursor.execute(
                 """
                 SELECT
-                    sleep_schedule,
-                    cleanliness,
-                    noise_tolerance,
-                    study_habits,
-                    smoking_preference,
-                    food_preferences,
-                    social_preferences,
-                    guest_preferences
-                FROM student_profiles
-                WHERE user_id = %s
+                    u.name,
+                    sp.sleep_schedule,
+                    sp.cleanliness,
+                    sp.noise_tolerance,
+                    sp.study_habits,
+                    sp.smoking_preference,
+                    sp.food_preferences,
+                    sp.social_preferences,
+                    sp.guest_preferences,
+                    sp.dob,
+                    sp.gender,
+                    sp.preferred_flatmate_gender,
+                    sp.location,
+                    sp.budget_min,
+                    sp.budget_max,
+                    sp.occupation,
+                    sp.drinking_preference,
+                    sp.preferred_age_min,
+                    sp.preferred_age_max
+                FROM users u
+                LEFT JOIN student_profiles sp ON sp.user_id = u.id
+                WHERE u.id = %s
                 """,
                 (user_id,),
             )
 
             my_row = cursor.fetchone()
-
             if not my_row:
                 return {
-                    "matches": []
+                    "matches": [],
+                    "profile_incomplete": True,
+                    "completion_percentage": 0,
+                    "missing_fields": ["Profile"],
+                    "message": "User not found",
                 }
 
-            my_profile = {
-                "sleep_schedule": my_row[0],
-                "cleanliness": my_row[1],
-                "noise_tolerance": my_row[2],
-                "study_habits": my_row[3],
-                "smoking_preference": my_row[4],
-                "food_preferences": my_row[5],
-                "social_preference": my_row[6],
-                "social_preferences": my_row[6],
-                "guest_preferences": my_row[7],
+            my_name = my_row[0]
+            my_prof_dict = {
+                "sleep_schedule": my_row[1],
+                "cleanliness": my_row[2],
+                "noise_tolerance": my_row[3],
+                "study_habits": my_row[4],
+                "smoking_preference": my_row[5],
+                "food_preferences": my_row[6],
+                "social_preferences": my_row[7],
+                "guest_preferences": my_row[8],
+                "dob": my_row[9],
+                "gender": my_row[10],
+                "preferred_flatmate_gender": my_row[11],
+                "location": my_row[12],
+                "budget_min": my_row[13],
+                "budget_max": my_row[14],
+                "occupation": my_row[15],
+                "drinking_preference": my_row[16],
+                "preferred_age_min": my_row[17],
+                "preferred_age_max": my_row[18],
             }
 
-            # Get everyone else
+            is_complete, pct, missing = compute_profile_completeness(my_name, my_prof_dict)
+            if not is_complete:
+                return {
+                    "matches": [],
+                    "profile_incomplete": True,
+                    "completion_percentage": pct,
+                    "missing_fields": missing,
+                    "message": "Please complete your mandatory profile details to unlock compatible flatmate recommendations.",
+                }
+
+            my_gender = my_prof_dict["gender"]
+            my_pref = my_prof_dict["preferred_flatmate_gender"]
+            my_age = calculate_age_from_dob(my_prof_dict["dob"])
+
+            # Query all candidates with profiles who are not self and not blocked
             cursor.execute(
                 """
                 SELECT
                     u.id,
                     u.name,
+                    u.avatar_url,
                     sp.sleep_schedule,
                     sp.cleanliness,
                     sp.noise_tolerance,
@@ -176,10 +236,19 @@ def get_matches(
                     sp.stream,
                     sp.year,
                     sp.pets_preference,
-                    sp.work_from_home
+                    sp.work_from_home,
+                    sp.dob,
+                    sp.gender,
+                    sp.preferred_flatmate_gender,
+                    sp.location,
+                    sp.budget_min,
+                    sp.budget_max,
+                    sp.occupation,
+                    sp.drinking_preference,
+                    sp.preferred_age_min,
+                    sp.preferred_age_max
                 FROM users u
-                JOIN student_profiles sp
-                    ON sp.user_id = u.id
+                JOIN student_profiles sp ON sp.user_id = u.id
                 WHERE u.id != %s
                   AND NOT EXISTS (
                       SELECT 1 FROM blocked_pairs bp
@@ -190,39 +259,99 @@ def get_matches(
             )
 
             rows = cursor.fetchall()
-
             matches = []
 
             for row in rows:
+                c_id = row[0]
+                c_name = row[1]
+                c_avatar = row[2]
+                c_dob = row[17]
+                c_gender = row[18]
+                c_pref = row[19]
+                c_loc = row[20]
+                c_bmin = row[21]
+                c_bmax = row[22]
+                c_occ = row[23]
+                c_drink = row[24]
+                c_p_amin = row[25]
+                c_p_amax = row[26]
+                c_age = calculate_age_from_dob(c_dob)
+
+                # 1. Server-side Mutual Gender Compatibility (Fundamental Requirement)
+                if not is_gender_compatible(my_gender, my_pref, c_gender, c_pref):
+                    continue
+
+                # If caller provided dynamic gender filter (e.g. 'female' or 'male')
+                if gender and gender.lower() not in ("all", "unisex", ""):
+                    if c_gender and c_gender.lower() != gender.lower():
+                        continue
+
+                # 2. Server-side Age Eligibility
+                # Effective min/max age: caller query param overrides saved preference
+                eff_min_age = min_age if min_age is not None else my_prof_dict["preferred_age_min"]
+                eff_max_age = max_age if max_age is not None else my_prof_dict["preferred_age_max"]
+
+                if not is_age_compatible(c_age, eff_min_age, eff_max_age):
+                    continue
+
+                # Also ensure caller fits candidate's preferred age limits if candidate specified them
+                if not is_age_compatible(my_age, c_p_amin, c_p_amax):
+                    continue
+
+                # 3. Location filter (if provided)
+                if location and location.strip():
+                    loc_q = location.strip().lower()
+                    if not c_loc or loc_q not in c_loc.lower():
+                        continue
+
+                # 4. Budget filter (if provided)
+                if min_budget is not None and c_bmax is not None and c_bmax < min_budget:
+                    continue
+                if max_budget is not None and c_bmin is not None and c_bmin > max_budget:
+                    continue
 
                 other_profile = {
-                    "sleep_schedule": row[2],
-                    "cleanliness": row[3],
-                    "noise_tolerance": row[4],
-                    "study_habits": row[5],
-                    "smoking_preference": row[6],
-                    "food_preferences": row[7],
-                    "social_preference": row[8],
-                    "social_preferences": row[8],
-                    "guest_preferences": row[9],
+                    "sleep_schedule": row[3],
+                    "cleanliness": row[4],
+                    "noise_tolerance": row[5],
+                    "study_habits": row[6],
+                    "smoking_preference": row[7],
+                    "food_preferences": row[8],
+                    "social_preference": row[9],
+                    "social_preferences": row[9],
+                    "guest_preferences": row[10],
                 }
 
                 compatibility, reasons = compare_preferences(
-                    my_profile,
+                    my_prof_dict,
                     other_profile,
                 )
 
+                # Strictly omit dob; only serialize computed age
                 matches.append({
-                    "user_id": row[0],
-                    "name": row[1],
+                    "user_id": c_id,
+                    "name": c_name,
+                    "avatar_url": c_avatar,
                     "compatibility": compatibility,
                     "reasons": reasons,
-                    "college": row[10] or "",
-                    "degree": row[11] or "",
-                    "stream": row[12] or "",
-                    "year": row[13] or "",
-                    "pets_preference": row[14] or "",
-                    "work_from_home": row[15] or "",
+                    "age": c_age,
+                    "gender": c_gender,
+                    "preferred_flatmate_gender": c_pref,
+                    "location": c_loc or "",
+                    "budget_min": c_bmin,
+                    "budget_max": c_bmax,
+                    "occupation": c_occ or "",
+                    "drinking_preference": c_drink or "",
+                    "smoking_preference": row[7] or "",
+                    "food_preferences": row[8] or "",
+                    "sleep_schedule": row[3] or "",
+                    "cleanliness": row[4],
+                    "college": row[11] or "",
+                    "degree": row[12] or "",
+                    "stream": row[13] or "",
+                    "year": row[14] or "",
+                    "pets_preference": row[15] or "",
+                    "work_from_home": row[16] or "",
                 })
 
             # Best matches first
@@ -232,7 +361,10 @@ def get_matches(
             )
 
             return {
-                "matches": matches
+                "matches": matches,
+                "profile_incomplete": False,
+                "completion_percentage": pct,
+                "total": len(matches),
             }
 
     finally:
@@ -240,9 +372,9 @@ def get_matches(
 
 
 def _fetch_all_profiles(cursor):
-    """Return {user_id: (name, profile_dict)} for every user with a profile."""
+    """Return {user_id: {...}} for every user with a profile."""
     cursor.execute(
-        f"""
+        """
         SELECT
             u.id,
             u.name,
@@ -253,7 +385,12 @@ def _fetch_all_profiles(cursor):
             sp.smoking_preference,
             sp.food_preferences,
             sp.social_preferences,
-            sp.guest_preferences
+            sp.guest_preferences,
+            sp.gender,
+            sp.preferred_flatmate_gender,
+            sp.dob,
+            sp.preferred_age_min,
+            sp.preferred_age_max
         FROM users u
         JOIN student_profiles sp ON sp.user_id = u.id
         """
@@ -271,10 +408,18 @@ def _fetch_all_profiles(cursor):
                 "smoking_preference": row[6],
                 "food_preferences": row[7],
                 "social_preference": row[8],
+                "social_preferences": row[8],
                 "guest_preferences": row[9],
             },
+            "gender": row[10],
+            "preferred_flatmate_gender": row[11],
+            "dob": row[12],
+            "age": calculate_age_from_dob(row[12]),
+            "preferred_age_min": row[13],
+            "preferred_age_max": row[14],
         }
     return result
+
 
 
 def _group_aggregate(profiles):
@@ -424,12 +569,34 @@ def get_stable_matching(
             compat_map = {}
             for uid in user_ids:
                 my_profile = all_profiles[uid]["profile"]
+                my_gen = all_profiles[uid].get("gender")
+                my_pgen = all_profiles[uid].get("preferred_flatmate_gender")
+                my_age = all_profiles[uid].get("age")
+                my_pamin = all_profiles[uid].get("preferred_age_min")
+                my_pamax = all_profiles[uid].get("preferred_age_max")
+
                 others = []
                 for oid in user_ids:
                     if oid == uid:
                         continue
                     if (min(uid, oid), max(uid, oid)) in blocked_pairs_set:
                         continue
+
+                    # Mutual gender compatibility
+                    if not is_gender_compatible(
+                        my_gen, my_pgen,
+                        all_profiles[oid].get("gender"),
+                        all_profiles[oid].get("preferred_flatmate_gender"),
+                    ):
+                        continue
+
+                    # Age compatibility check
+                    o_age = all_profiles[oid].get("age")
+                    if not is_age_compatible(o_age, my_pamin, my_pamax):
+                        continue
+                    if not is_age_compatible(my_age, all_profiles[oid].get("preferred_age_min"), all_profiles[oid].get("preferred_age_max")):
+                        continue
+
                     score, _ = compare_preferences(my_profile, all_profiles[oid]["profile"])
                     compat_map[(uid, oid)] = score
                     others.append((oid, score))
@@ -438,6 +605,7 @@ def get_stable_matching(
                 explicit = [
                     r for r in ranked
                     if r in all_profiles and r != uid and (min(uid, r), max(uid, r)) not in blocked_pairs_set
+                    and is_gender_compatible(my_gen, my_pgen, all_profiles[r].get("gender"), all_profiles[r].get("preferred_flatmate_gender"))
                 ]
                 rest = [oid for oid, _ in others if oid not in explicit]
                 preferences[uid] = explicit + rest

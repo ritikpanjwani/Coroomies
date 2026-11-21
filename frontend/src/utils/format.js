@@ -92,3 +92,22 @@ export function errorMessage(err, fallback) {
   }
   return fallback;
 }
+
+export function calculateAge(dobStr) {
+  if (!dobStr) return null;
+  const parts = String(dobStr).trim().split("-");
+  if (parts.length !== 3) return null;
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10) - 1;
+  const d = parseInt(parts[2], 10);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
+
+  const birthDate = new Date(y, m, d);
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age >= 0 ? age : null;
+}

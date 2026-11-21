@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import api, { API_BASE, getApiBase } from "./api";
-import { getToken } from "./auth";
+import api, { API_BASE } from "./api";
 import Avatar from "./components/ui/Avatar";
 import Badge from "./components/ui/Badge";
 import Button from "./components/ui/Button";
@@ -42,6 +41,56 @@ function formatFileSize(bytes) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function ProtectedAttachment({ attachment, isOwn, onExpand }) {
+    const [mediaUrl, setMediaUrl] = useState(null);
+
+    useEffect(() => {
+        let active = true;
+        let objectUrl = null;
+        api.get(`/messages/media/${attachment.id}`, { responseType: "blob" })
+            .then((response) => {
+                objectUrl = URL.createObjectURL(response.data);
+                if (active) setMediaUrl(objectUrl);
+            })
+            .catch(() => active && setMediaUrl(null));
+        return () => {
+            active = false;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [attachment.id]);
+
+    if (!mediaUrl) {
+        return <div className="h-24 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-700" />;
+    }
+
+    const isVideo = attachment.media_type === "video" || attachment.mime_type?.startsWith("video/");
+    if (isVideo) {
+        return (
+            <div className="overflow-hidden rounded-xl bg-black/10 dark:bg-black/30">
+                <video controls preload="metadata" playsInline className="max-h-72 w-full rounded-xl object-contain bg-black">
+                    <source src={mediaUrl} type={attachment.mime_type || "video/mp4"} />
+                    Your browser does not support HTML video playback.
+                </video>
+                {attachment.original_filename && (
+                    <div className={`flex items-center justify-between px-2.5 py-1 text-[11px] ${isOwn ? "text-brand-100/80" : "text-slate-400"}`}>
+                        <span className="truncate max-w-[180px]">{attachment.original_filename}</span>
+                        {attachment.file_size > 0 && <span>{formatFileSize(attachment.file_size)}</span>}
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="group/att relative overflow-hidden rounded-xl">
+            <img src={mediaUrl} alt={attachment.original_filename || "Shared photo"} loading="lazy" onClick={onExpand} className="max-h-72 w-auto max-w-full rounded-xl object-cover cursor-pointer transition-transform hover:scale-[1.01]" />
+            <button type="button" onClick={onExpand} className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/60 text-white opacity-0 group-hover/att:opacity-100 transition-opacity hover:bg-black/80" title="Expand photo" aria-label="Expand photo">
+                <ZoomInIcon className="h-4 w-4" />
+            </button>
+        </div>
+    );
+}
+
 const ICEBREAKERS = [
     "Hey! Excited to connect with you!",
     "When are you planning to move in?",
@@ -76,6 +125,7 @@ function Chat() {
     const [uploadProgress, setUploadProgress] = useState(null);
     const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
     const [lightboxMedia, setLightboxMedia] = useState(null);
+    const [lightboxUrl, setLightboxUrl] = useState(null);
     const [lightboxZoom, setLightboxZoom] = useState(1);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
 
@@ -287,11 +337,8 @@ function Chat() {
 
     const handleDownloadMedia = async (attachment) => {
         try {
-            const token = getToken();
-            const url = `${getApiBase()}/messages/media/${attachment.id}?token=${encodeURIComponent(token || "")}`;
-            const res = await fetch(url);
-            const blob = await res.blob();
-            const blobUrl = URL.createObjectURL(blob);
+            const res = await api.get(`/messages/media/${attachment.id}`, { responseType: "blob" });
+            const blobUrl = URL.createObjectURL(res.data);
             const a = document.createElement("a");
             a.href = blobUrl;
             a.download = attachment.original_filename || `coroomies-media-${attachment.id}`;
@@ -303,6 +350,24 @@ function Chat() {
             toast.error("Failed to download media");
         }
     };
+
+    useEffect(() => {
+        if (!lightboxMedia) {
+            return undefined;
+        }
+        let active = true;
+        let objectUrl = null;
+        api.get(`/messages/media/${lightboxMedia.id}`, { responseType: "blob" })
+            .then((response) => {
+                objectUrl = URL.createObjectURL(response.data);
+                if (active) setLightboxUrl(objectUrl);
+            })
+            .catch(() => active && setLightboxUrl(null));
+        return () => {
+            active = false;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
+        };
+    }, [lightboxMedia]);
 
     // Handle browser back button on mobile when in chat view
     useEffect(() => {
@@ -745,67 +810,17 @@ function Chat() {
 
         return (
             <div className="mt-2 space-y-2">
-                {attachments.map((att) => {
-                    const isVideo = att.media_type === "video" || att.mime_type?.startsWith("video/");
-                    const token = getToken();
-                    const mediaUrl = `${getApiBase()}/messages/media/${att.id}?token=${encodeURIComponent(token || "")}`;
-
-                    if (isVideo) {
-                        return (
-                            <div
-                                key={att.id}
-                                className="overflow-hidden rounded-xl bg-black/10 dark:bg-black/30"
-                            >
-                                <video
-                                    controls
-                                    preload="metadata"
-                                    playsInline
-                                    className="max-h-72 w-full rounded-xl object-contain bg-black"
-                                >
-                                    <source src={mediaUrl} type={att.mime_type || "video/mp4"} />
-                                    Your browser does not support HTML video playback.
-                                </video>
-                                {att.original_filename && (
-                                    <div
-                                        className={`flex items-center justify-between px-2.5 py-1 text-[11px] ${
-                                            isOwn ? "text-brand-100/80" : "text-slate-400"
-                                        }`}
-                                    >
-                                        <span className="truncate max-w-[180px]">{att.original_filename}</span>
-                                        {att.file_size > 0 && <span>{formatFileSize(att.file_size)}</span>}
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    }
-
-                    return (
-                        <div key={att.id} className="group/att relative overflow-hidden rounded-xl">
-                            <img
-                                src={mediaUrl}
-                                alt={att.original_filename || "Shared photo"}
-                                loading="lazy"
-                                onClick={() => {
-                                    setLightboxMedia(att);
-                                    setLightboxZoom(1);
-                                }}
-                                className="max-h-72 w-auto max-w-full rounded-xl object-cover cursor-pointer transition-transform hover:scale-[1.01]"
-                            />
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setLightboxMedia(att);
-                                    setLightboxZoom(1);
-                                }}
-                                className="absolute bottom-2 right-2 flex h-7 w-7 items-center justify-center rounded-lg bg-black/60 text-white opacity-0 group-hover/att:opacity-100 transition-opacity hover:bg-black/80"
-                                title="Expand photo"
-                                aria-label="Expand photo"
-                            >
-                                <ZoomInIcon className="h-4 w-4" />
-                            </button>
-                        </div>
-                    );
-                })}
+                {attachments.map((att) => (
+                    <ProtectedAttachment
+                        key={att.id}
+                        attachment={att}
+                        isOwn={isOwn}
+                        onExpand={() => {
+                            setLightboxMedia(att);
+                            setLightboxZoom(1);
+                        }}
+                    />
+                ))}
             </div>
         );
     };
@@ -1939,12 +1954,11 @@ function Chat() {
                         className="flex-1 min-h-0 flex items-center justify-center overflow-auto p-2"
                         onClick={(e) => e.stopPropagation()}
                     >
-                        <img
-                            src={`${getApiBase()}/messages/media/${lightboxMedia.id}?token=${encodeURIComponent(getToken() || "")}`}
-                            alt={lightboxMedia.original_filename || "Photo"}
-                            style={{ transform: `scale(${lightboxZoom})`, transformOrigin: "center center" }}
-                            className="max-h-full max-w-full object-contain transition-transform duration-200"
-                        />
+                        {lightboxUrl ? (
+                            <img src={lightboxUrl} alt={lightboxMedia.original_filename || "Photo"} style={{ transform: `scale(${lightboxZoom})`, transformOrigin: "center center" }} className="max-h-full max-w-full object-contain transition-transform duration-200" />
+                        ) : (
+                            <Spinner size="lg" />
+                        )}
                     </div>
                 </div>
             )}

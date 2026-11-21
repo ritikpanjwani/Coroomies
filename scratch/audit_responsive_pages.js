@@ -5,8 +5,12 @@ const path = require('path');
 const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const screenshotDir = 'C:\\Users\\Ritik Panjwani\\.gemini\\antigravity\\brain\\174cf3c3-3a85-4cb7-89f6-66db0eb7076e\\audit_screenshots';
 
-// JWT generated for user_id = 1
-const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwidmVyIjowLCJpYXQiOjE3OTQ3NDI2MjUsImV4cCI6MTc5NDgyOTAyNX0.ZFKqrXo6UQVE_Xeduc80QRfziHd4RL8QgVzEn9LpPJQ';
+// Supply a short-lived token only through the local environment; never commit
+// bearer credentials to an audit script.
+const token = process.env.COROOMIES_AUDIT_TOKEN;
+if (!token) {
+  throw new Error('Set COROOMIES_AUDIT_TOKEN before running this authenticated audit.');
+}
 
 const VIEWPORTS = [320, 360, 375, 390, 414, 430, 768, 1024, 1280, 1440, 1920];
 const PAGES = ['home', 'matches', 'chat', 'expenses', 'groups', 'household', 'assistant', 'notifications', 'profile', 'settings'];

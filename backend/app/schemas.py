@@ -5,7 +5,7 @@ from typing import Annotated
 
 from enum import Enum
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
 MAX_EXPENSE_AMOUNT = Decimal("99999999.99")
@@ -205,6 +205,24 @@ class PetsPreference(str, Enum):
     own_pet = "own_pet"
 
 
+class GenderEnum(str, Enum):
+    male = "male"
+    female = "female"
+    prefer_not_to_say = "prefer_not_to_say"
+
+
+class PreferredGenderEnum(str, Enum):
+    male = "male"
+    female = "female"
+    unisex = "unisex"
+
+
+class DrinkingPreference(str, Enum):
+    non_drinker = "non_drinker"
+    social_drinker = "social_drinker"
+    regular_drinker = "regular_drinker"
+
+
 class ProfileCreate(BaseModel):
     sleep_schedule: SleepSchedule | None = None
     cleanliness: int | None = None
@@ -222,6 +240,48 @@ class ProfileCreate(BaseModel):
     stream: str | None = None
     year: int | None = None
 
+    # Demographics & Discovery Preferences
+    dob: date | str | None = None
+    gender: GenderEnum | None = None
+    preferred_flatmate_gender: PreferredGenderEnum | None = None
+    location: str | None = None
+    budget_min: int | None = None
+    budget_max: int | None = None
+    occupation: str | None = None
+    drinking_preference: DrinkingPreference | None = None
+    preferred_age_min: int | None = None
+    preferred_age_max: int | None = None
+
+    @field_validator("dob", mode="before")
+    @classmethod
+    def validate_dob(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+                raise ValueError("Date of birth must be in YYYY-MM-DD format")
+            try:
+                parsed_date = date.fromisoformat(v)
+            except ValueError:
+                raise ValueError("Invalid calendar date for date of birth")
+        elif isinstance(v, date):
+            parsed_date = v
+        else:
+            raise ValueError("Invalid date format")
+
+        today = date.today()
+        if parsed_date > today:
+            raise ValueError("Date of birth cannot be in the future")
+
+        # Age calculation
+        age = today.year - parsed_date.year - ((today.month, today.day) < (parsed_date.month, parsed_date.day))
+        if age < 18:
+            raise ValueError("You must be at least 18 years old to join CoRoomies")
+        if age > 100:
+            raise ValueError("Please enter a realistic date of birth (maximum age is 100)")
+        return parsed_date
+
     @field_validator("cleanliness", "noise_tolerance", mode="before")
     @classmethod
     def validate_rating(cls, v):
@@ -234,12 +294,47 @@ class ProfileCreate(BaseModel):
             raise ValueError("Rating must be between 1 and 10")
         return v
 
-    @field_validator("college", "degree", "stream")
+    @field_validator("college", "degree", "stream", "location", "occupation")
     @classmethod
     def validate_optional_string(cls, v):
-        if v is not None and len(v.strip()) > 150:
+        if v is None or v == "":
+            return None
+        cleaned = v.strip()
+        if len(cleaned) > 150:
             raise ValueError("Value must be 150 characters or fewer")
-        return v.strip() if v is not None else None
+        return cleaned
+
+    @field_validator("budget_min", "budget_max", "preferred_age_min", "preferred_age_max", mode="before")
+    @classmethod
+    def validate_positive_int(cls, v):
+        if v is None or v == "":
+            return None
+        if isinstance(v, str):
+            v = v.strip()
+            if not v.isdigit():
+                raise ValueError("Must be a valid whole number")
+            v = int(v)
+        if isinstance(v, (int, float)):
+            v = int(v)
+            if v < 0:
+                raise ValueError("Value cannot be negative")
+        return v
+
+    @model_validator(mode="after")
+    def validate_preference_ranges(self):
+        if self.budget_min is not None and self.budget_max is not None and self.budget_min > self.budget_max:
+            raise ValueError("Minimum budget cannot exceed maximum budget")
+        if self.preferred_age_min is not None and self.preferred_age_min < 18:
+            raise ValueError("Preferred minimum age must be at least 18")
+        if self.preferred_age_max is not None and self.preferred_age_max > 100:
+            raise ValueError("Preferred maximum age must be 100 or lower")
+        if (
+            self.preferred_age_min is not None
+            and self.preferred_age_max is not None
+            and self.preferred_age_min > self.preferred_age_max
+        ):
+            raise ValueError("Preferred minimum age cannot exceed preferred maximum age")
+        return self
 
     @field_validator("year")
     @classmethod

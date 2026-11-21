@@ -1,7 +1,6 @@
 import jwt
 from datetime import datetime, timedelta, timezone
-from typing import Optional
-from fastapi import Depends, HTTPException, Query
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES, JWT_SECRET_KEY
 from app.database import get_connection
@@ -24,7 +23,6 @@ def create_access_token(user_id: int, token_version: int = 0) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 security = HTTPBearer()
-security_optional = HTTPBearer(auto_error=False)
 
 
 def _verify_token_and_get_user_id(token_str: str) -> int:
@@ -74,22 +72,3 @@ def get_current_user_id(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> int:
     return _verify_token_and_get_user_id(credentials.credentials)
-
-
-def get_current_user_id_flexible(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
-    token: Optional[str] = Query(None),
-) -> int:
-    raw_token = None
-    if credentials and credentials.credentials:
-        raw_token = credentials.credentials
-    elif token:
-        raw_token = token
-
-    if not raw_token:
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication token required",
-        )
-
-    return _verify_token_and_get_user_id(raw_token)
