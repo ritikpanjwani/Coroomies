@@ -105,9 +105,12 @@ RATE_LIMIT_FAIL_CLOSED = _env_bool("RATE_LIMIT_FAIL_CLOSED", default=IS_PRODUCTI
 CSP_POLICY = os.getenv(
     "CONTENT_SECURITY_POLICY",
     "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; "
+    "frame-src https://accounts.google.com; "
     "object-src 'none'; form-action 'self'; img-src 'self' data: blob:; "
     "media-src 'self' data: blob:; "
-    "script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'",
+    "script-src 'self' https://accounts.google.com; "
+    "style-src 'self' 'unsafe-inline'; "
+    "connect-src 'self' https://accounts.google.com",
 ).strip()
 
 # Enable only when the public deployment is guaranteed to be HTTPS-only.
@@ -120,3 +123,9 @@ DB_POOL_MAX_SIZE = _env_int("DB_POOL_MAX_SIZE", 10)
 DB_POOL_TIMEOUT_SECONDS = float(os.getenv("DB_POOL_TIMEOUT_SECONDS", "5"))
 if DB_POOL_MIN_SIZE < 1 or DB_POOL_MAX_SIZE < DB_POOL_MIN_SIZE:
     raise RuntimeError("DB pool sizes must satisfy 1 <= DB_POOL_MIN_SIZE <= DB_POOL_MAX_SIZE")
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_ALLOWED_ISSUERS = (
+    "https://accounts.google.com",
+    "accounts.google.com",
+)
