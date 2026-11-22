@@ -22,7 +22,7 @@ function apiOriginFrom(url) {
 function contentSecurityPolicy(apiOrigin, { dev }) {
   const scriptSrc = dev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self'"
   const connectSrc = dev
-    ? `'self' http://127.0.0.1:8000 http://localhost:8000 ${apiOrigin} https://*.trycloudflare.com ws: wss:`
+    ? `'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:8001 http://localhost:8001 ${apiOrigin} https://*.trycloudflare.com ws: wss:`
     : `'self' ${apiOrigin}`
   const imgSrc = dev
     ? `'self' data: blob: http://127.0.0.1:8000 http://localhost:8000 ${apiOrigin} https://*.trycloudflare.com`
@@ -35,10 +35,10 @@ function contentSecurityPolicy(apiOrigin, { dev }) {
     "default-src 'self'",
     "base-uri 'self'",
     "frame-ancestors 'none'",
-    "frame-src 'none'",
+    "frame-src https://accounts.google.com",
     "object-src 'none'",
     "form-action 'self'",
-    `script-src ${scriptSrc}`,
+    `script-src ${scriptSrc} https://accounts.google.com`,
     "style-src 'self' 'unsafe-inline'",
     `img-src ${imgSrc}`,
     `media-src ${mediaSrc}`,
@@ -55,6 +55,12 @@ export default defineConfig(({ command, mode }) => {
     process.env.VITE_API_URL ||
     env.VITE_API_URL ||
     env['\uFEFFVITE_API_URL'] ||
+    ''
+  ).trim()
+  const configuredGoogleClientId = (
+    process.env.VITE_GOOGLE_CLIENT_ID ||
+    env.VITE_GOOGLE_CLIENT_ID ||
+    env['\uFEFFVITE_GOOGLE_CLIENT_ID'] ||
     ''
   ).trim()
 
@@ -92,6 +98,7 @@ export default defineConfig(({ command, mode }) => {
   return {
     define: {
       'import.meta.env.VITE_API_URL': JSON.stringify(apiOrigin),
+      'import.meta.env.VITE_GOOGLE_CLIENT_ID': JSON.stringify(configuredGoogleClientId),
     },
     plugins: [react(), tailwindcss()],
     server: {

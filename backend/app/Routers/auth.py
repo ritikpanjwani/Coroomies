@@ -1,16 +1,20 @@
 import hashlib
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.auth import create_access_token, get_current_user_id
 from app.config import DEV_MODE
 from app.database import get_connection
+from app.google_auth import verify_google_id_token
 from app.logging_utils import log_exception
 from app.emailer import send_otp_email_background
 from app.rate_limit import enforce, get_client_ip
 from app.schemas import (
     ForgotPasswordRequest,
+    GoogleAuthRequest,
+    GoogleLinkRequest,
     ResetPasswordRequest,
     UserCreate,
     UserLogin,
@@ -44,6 +48,172 @@ def _find_user_by_identifier(cursor, identifier: str):
         (ident, ident),
     )
     return cursor.fetchone()
+
+
+def _google_user_response(row):
+    return {
+        "access_token": create_access_token(row[0], row[6]),
+        "token_type": "bearer",
+        "profile_complete": bool(row[8]),
+        "user": {
+            "id": row[0],
+            "name": row[1],
+            "email": row[2],
+            "username": row[4],
+            "avatar_url": row[5],
+            "upi_id": row[7] or "",
+        },
+    }
+
+
+def _load_google_user(cursor, user_id: int):
+    cursor.execute(
+        """
+        SELECT u.id, u.name, u.email, u.password_hash, u.username, u.avatar_url,
+               u.token_version, u.upi_id,
+               EXISTS (SELECT 1 FROM student_profiles p WHERE p.user_id = u.id)
+        FROM users u
+        WHERE u.id = %s
+        """,
+        (user_id,),
+    )
+    return cursor.fetchone()
+
+
+def _available_google_username(cursor, email: str) -> str:
+    base = "".join(
+        char for char in email.split("@", 1)[0].lower()
+        if char.isalnum() or char == "_"
+    )
+    base = (base or "google_user")[:24]
+    for suffix in range(100):
+        username = base if suffix == 0 else f"{base[:20]}_{suffix}"
+        cursor.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+        if not cursor.fetchone():
+            return username
+    return f"google_{secrets.token_hex(6)}"
+
+
+def _authenticate_google(body, request: Request, link_password: str | None = None):
+    enforce(f"google-login:ip:{get_client_ip(request)}", limit=10, window=60)
+    identity = verify_google_id_token(body.credential)
+    connection = get_connection()
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id
+                FROM users
+                WHERE google_sub = %s
+                LIMIT 1
+                """,
+                (identity["sub"],),
+            )
+            google_user = cursor.fetchone()
+            if google_user:
+                row = _load_google_user(cursor, google_user[0])
+                connection.commit()
+                return _google_user_response(row)
+
+            cursor.execute(
+                """
+                SELECT id, password_hash
+                FROM users
+                WHERE lower(email) = lower(%s)
+                LIMIT 1
+                """,
+                (identity["email"],),
+            )
+            email_user = cursor.fetchone()
+            if email_user:
+                if link_password is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "account_link_required",
+                            "message": (
+                                "An account already uses this email. Enter its password "
+                                "to securely link Google."
+                            ),
+                        },
+                    )
+                if not verify_password(link_password, email_user[1]):
+                    raise HTTPException(
+                        status_code=401,
+                        detail="The existing account password is incorrect.",
+                    )
+                cursor.execute(
+                    """
+                    UPDATE users
+                    SET google_sub = %s, avatar_url = COALESCE(avatar_url, %s)
+                    WHERE id = %s AND google_sub IS NULL
+                    """,
+                    (identity["sub"], identity["picture"], email_user[0]),
+                )
+                if cursor.rowcount != 1:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This Google account is already linked.",
+                    )
+                row = _load_google_user(cursor, email_user[0])
+                connection.commit()
+                return _google_user_response(row)
+
+            username = _available_google_username(cursor, identity["email"])
+            cursor.execute(
+                """
+                INSERT INTO users
+                    (name, email, password_hash, username, username_changed_at,
+                     google_sub, avatar_url)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    identity["name"],
+                    identity["email"],
+                    hash_password(secrets.token_urlsafe(32)),
+                    username,
+                    datetime.now(timezone.utc),
+                    identity["sub"],
+                    identity["picture"],
+                ),
+            )
+            new_user_id = cursor.fetchone()[0]
+            row = _load_google_user(cursor, new_user_id)
+            connection.commit()
+            return _google_user_response(row)
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception as exc:
+        connection.rollback()
+        log_exception(logger, "Google authentication failed", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Google sign-in failed. Please try again.",
+        )
+    finally:
+        connection.close()
+
+
+@router.post("/google")
+def google_login(body: GoogleAuthRequest, request: Request):
+    return _authenticate_google(body, request)
+
+
+@router.post("/google/link")
+def google_link(body: GoogleLinkRequest, request: Request):
+    return _authenticate_google(body, request, link_password=body.password)
+
+
+@router.get("/google/config")
+def google_config():
+    from app.config import GOOGLE_CLIENT_ID
+
+    if not GOOGLE_CLIENT_ID:
+        return {"configured": False, "client_id": None}
+    return {"configured": True, "client_id": GOOGLE_CLIENT_ID}
 
 
 @router.post("/register")

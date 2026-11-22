@@ -103,6 +103,14 @@ class UserLogin(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str = Field(min_length=1, max_length=8192)
+
+
+class GoogleLinkRequest(GoogleAuthRequest):
+    password: str = Field(min_length=1, max_length=128)
+
+
 class VerifyOtpRequest(BaseModel):
     identifier: str
     otp: str = Field(min_length=6, max_length=6)

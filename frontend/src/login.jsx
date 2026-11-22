@@ -7,12 +7,16 @@ import Button from "./components/ui/Button";
 import { useToast } from "./components/Toast";
 import { errorMessage } from "./utils/format";
 import { AlertIcon } from "./components/Icons";
+import GoogleSignInButton from "./components/auth/GoogleSignInButton";
 
 function Login({ onLogin, goToRegister, goToForgot }) {
     const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");
     const [errors, setErrors] = useState({});
     const [loading, setLoading] = useState(false);
+    const [googleCredential, setGoogleCredential] = useState("");
+    const [linkPassword, setLinkPassword] = useState("");
+    const [linkRequired, setLinkRequired] = useState(false);
     const toast = useToast();
 
     const handleLogin = async (e) => {
@@ -62,6 +66,53 @@ function Login({ onLogin, goToRegister, goToForgot }) {
             setErrors({
                 form: msg,
             });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const finishGoogleLogin = (response) => {
+        saveToken(response.access_token);
+        localStorage.setItem("user_id", String(response.user?.id || ""));
+        localStorage.setItem("user_name", response.user?.name || "");
+        localStorage.setItem("user_username", response.user?.username || "");
+        if (response.user?.avatar_url) localStorage.setItem("user_avatar", response.user.avatar_url);
+        onLogin();
+    };
+
+    const handleGoogleCredential = async (credential) => {
+        if (loading) return;
+        setLoading(true);
+        setErrors({});
+        setGoogleCredential(credential);
+        try {
+            const response = await api.post("/auth/google", { credential });
+            finishGoogleLogin(response.data);
+        } catch (err) {
+            const detail = err.response?.data?.detail;
+            if (err.response?.status === 409 && detail?.code === "account_link_required") {
+                setLinkRequired(true);
+                setErrors({ form: detail.message });
+            } else {
+                setErrors({ form: errorMessage(err, "Google sign-in failed. Please try again.") });
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGoogleLink = async (e) => {
+        e.preventDefault();
+        if (!linkPassword || !googleCredential || loading) return;
+        setLoading(true);
+        try {
+            const response = await api.post("/auth/google/link", {
+                credential: googleCredential,
+                password: linkPassword,
+            });
+            finishGoogleLogin(response.data);
+        } catch (err) {
+            setErrors({ form: errorMessage(err, "Could not link Google to this account.") });
         } finally {
             setLoading(false);
         }
@@ -143,6 +194,25 @@ function Login({ onLogin, goToRegister, goToForgot }) {
                     {loading ? "Logging in..." : "Log in"}
                 </Button>
             </form>
+
+            <GoogleSignInButton onCredential={handleGoogleCredential} disabled={loading} />
+
+            {linkRequired && (
+                <form className="mt-4 space-y-3" onSubmit={handleGoogleLink}>
+                    <Input
+                        id="google-link-password"
+                        label="Existing account password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={linkPassword}
+                        disabled={loading}
+                        onChange={(e) => setLinkPassword(e.target.value)}
+                    />
+                    <Button type="submit" size="lg" fullWidth loading={loading} disabled={loading || !linkPassword}>
+                        Link Google account
+                    </Button>
+                </form>
+            )}
 
             <div className="mt-6 flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />

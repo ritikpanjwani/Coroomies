@@ -12,6 +12,7 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(
     localStorage.getItem("access_token") !== null
   );
+  const [view, setView] = useState("login"); // "login" | "register" | "forgot"
 
   // Capture and preserve living group invitations from URL parameters across auth
   useEffect(() => {
@@ -45,7 +46,14 @@ function App() {
     }
   }, []);
 
-  const [view, setView] = useState("login"); // "login" | "register" | "forgot"
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setLoggedIn(false);
+      setView("login");
+    };
+    window.addEventListener("coroomies:session-expired", handleSessionExpired);
+    return () => window.removeEventListener("coroomies:session-expired", handleSessionExpired);
+  }, []);
 
   return (
     <ToastProvider>
@@ -62,6 +70,14 @@ function App() {
           ) : view === "register" ? (
             <Register
               onRegistered={() => setView("login")}
+              onGoogleLogin={(response) => {
+                localStorage.setItem("access_token", response.access_token);
+                localStorage.setItem("user_id", String(response.user?.id || ""));
+                localStorage.setItem("user_name", response.user?.name || "");
+                localStorage.setItem("user_username", response.user?.username || "");
+                if (response.user?.avatar_url) localStorage.setItem("user_avatar", response.user.avatar_url);
+                setLoggedIn(true);
+              }}
               goToLogin={() => setView("login")}
             />
           ) : view === "forgot" ? (

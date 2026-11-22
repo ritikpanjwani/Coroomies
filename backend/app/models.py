@@ -14,5 +14,6 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     upi_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

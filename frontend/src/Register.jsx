@@ -8,8 +8,9 @@ import { errorMessage } from "./utils/format";
 import { validatePasswordStrength } from "./utils/validation";
 import PasswordRequirements from "./components/auth/PasswordRequirements";
 import { AlertIcon } from "./components/Icons";
+import GoogleSignInButton from "./components/auth/GoogleSignInButton";
 
-function Register({ onRegistered, goToLogin }) {
+function Register({ onRegistered, onGoogleLogin, goToLogin }) {
     const [name, setName] = useState("");
     const [username, setUsername] = useState("");
     const [email, setEmail] = useState("");
@@ -18,6 +19,9 @@ function Register({ onRegistered, goToLogin }) {
     const [errors, setErrors] = useState({});
     const [touched, setTouched] = useState({});
     const [loading, setLoading] = useState(false);
+    const [googleCredential, setGoogleCredential] = useState("");
+    const [linkPassword, setLinkPassword] = useState("");
+    const [linkRequired, setLinkRequired] = useState(false);
     const toast = useToast();
 
     const validateField = (field, val, currentVals = {}) => {
@@ -118,6 +122,44 @@ function Register({ onRegistered, goToLogin }) {
                 ...prev,
                 form: errorMessage(err, "Registration failed. Please check your information and try again."),
             }));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGoogleCredential = async (credential) => {
+        if (loading) return;
+        setLoading(true);
+        setGoogleCredential(credential);
+        setErrors({});
+        try {
+            const response = await api.post("/auth/google", { credential });
+            onGoogleLogin(response.data);
+        } catch (err) {
+            const detail = err.response?.data?.detail;
+            if (err.response?.status === 409 && detail?.code === "account_link_required") {
+                setLinkRequired(true);
+                setErrors({ form: detail.message });
+            } else {
+                setErrors({ form: errorMessage(err, "Google sign-in failed. Please try again.") });
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGoogleLink = async (e) => {
+        e.preventDefault();
+        if (!linkPassword || !googleCredential || loading) return;
+        setLoading(true);
+        try {
+            const response = await api.post("/auth/google/link", {
+                credential: googleCredential,
+                password: linkPassword,
+            });
+            onGoogleLogin(response.data);
+        } catch (err) {
+            setErrors((prev) => ({ ...prev, form: errorMessage(err, "Could not link Google to this account.") }));
         } finally {
             setLoading(false);
         }
@@ -239,6 +281,25 @@ function Register({ onRegistered, goToLogin }) {
                     {loading ? "Creating account..." : "Create account"}
                 </Button>
             </form>
+
+            <GoogleSignInButton onCredential={handleGoogleCredential} disabled={loading} />
+
+            {linkRequired && (
+                <form className="mt-4 space-y-3" onSubmit={handleGoogleLink}>
+                    <Input
+                        id="google-link-password"
+                        label="Existing account password"
+                        type="password"
+                        autoComplete="current-password"
+                        value={linkPassword}
+                        disabled={loading}
+                        onChange={(e) => setLinkPassword(e.target.value)}
+                    />
+                    <Button type="submit" size="lg" fullWidth loading={loading} disabled={loading || !linkPassword}>
+                        Link Google account
+                    </Button>
+                </form>
+            )}
 
             <div className="mt-6 flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
