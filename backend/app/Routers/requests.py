@@ -169,8 +169,8 @@ def send_request(
             cursor.execute(
                 """
                 INSERT INTO roommate_requests
-                (sender_id, receiver_id, status)
-                VALUES (%s, %s, 'pending')
+                (sender_id, receiver_id, status, created_at)
+                VALUES (%s, %s, 'pending', NOW())
                 RETURNING id
                 """,
                 (sender_id, receiver_id),

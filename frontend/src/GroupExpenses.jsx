@@ -1102,7 +1102,7 @@ function SettleUpInner({
                 payment_reference: reference.trim() || null,
                 note: note.trim() || null,
             });
-            toast.success(res.data.message || `Payment of ${formatCurrency(amt)} cleared and marked Paid!`);
+            toast.success(res.data.message || `Payment of ${formatCurrency(amt)} reported. Waiting for confirmation.`);
             if (onSettlementComplete) await onSettlementComplete();
             onClose();
         } catch (err) {
@@ -1462,7 +1462,7 @@ function SettleUpInner({
                                 Record Payment & Clear Balance
                             </div>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                Once transferred, record it below. Your balance will be cleared and marked Paid immediately.
+                                Once transferred, report it below. The recipient must verify receipt before the balance is marked Paid.
                             </p>
 
                             <div className="space-y-2">

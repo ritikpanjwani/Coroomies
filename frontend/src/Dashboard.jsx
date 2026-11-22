@@ -13,6 +13,7 @@ const Groups = lazy(() => import("./Groups"));
 const Household = lazy(() => import("./Household"));
 const Assistant = lazy(() => import("./Assistant"));
 const Settings = lazy(() => import("./Settings"));
+const Rooms = lazy(() => import("./Rooms"));
 
 import { logout } from "./auth";
 import api, { API_BASE } from "./api";
@@ -24,6 +25,7 @@ import {
   MessageCircleIcon,
   ReceiptIndianRupeeIcon,
   CheckCircleIcon,
+  BuildingIcon,
   SparklesIcon,
   UserRoundPlusIcon,
   BellIcon,
@@ -60,6 +62,7 @@ const NAV_GROUPS = [
     label: "Living",
     items: [
       { key: "expenses", label: "Expenses", icon: <ReceiptIndianRupeeIcon className="h-[18px] w-[18px]" /> },
+      { key: "rooms", label: "Rooms & Vacancies", icon: <BuildingIcon className="h-[18px] w-[18px]" /> },
       { key: "groups", label: "Living Groups", icon: <HouseIcon className="h-[18px] w-[18px]" /> },
       { key: "household", label: "Household", icon: <CheckCircleIcon className="h-[18px] w-[18px]" /> },
       { key: "assistant", label: "Conflict Assistant", icon: <SparklesIcon className="h-[18px] w-[18px]" /> },
@@ -779,6 +782,7 @@ function Dashboard() {
                                 {page === "chat" && <Chat />}
                                 {page === "notifications" && <Notifications setPage={navigate} />}
                                 {page === "settings" && <Settings />}
+                                {page === "rooms" && <Rooms />}
                             </Suspense>
                         </ErrorBoundary>
                     </div>
@@ -832,7 +836,7 @@ function Dashboard() {
                         onClick={() => setMoreOpen(true)}
                         aria-expanded={moreOpen}
                         className={`relative flex min-h-[48px] min-w-[56px] flex-1 flex-col items-center justify-center gap-1 py-1.5 text-[11px] font-medium transition-colors ${
-                            ["groups", "household", "assistant", "profile", "settings"].includes(page)
+                            ["groups", "household", "assistant", "profile", "settings", "rooms"].includes(page)
                                 ? "text-brand-600 dark:text-brand-400 font-semibold"
                                 : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
                         }`}
@@ -841,7 +845,7 @@ function Dashboard() {
                             <MenuIcon className="h-5 w-5" />
                         </span>
                         <span>More</span>
-                        {["groups", "household", "assistant", "profile", "settings"].includes(page) && (
+                        {["groups", "household", "assistant", "profile", "settings", "rooms"].includes(page) && (
                             <span className="absolute top-0 left-1/2 -translate-x-1/2 h-1 w-8 rounded-full bg-gradient-to-r from-brand-600 to-violet-500" />
                         )}
                     </button>
@@ -911,6 +915,7 @@ function Dashboard() {
                                 { key: "assistant", label: "Conflict Assistant", desc: "AI mediation & fair dispute resolution", icon: SparklesIcon, color: "bg-violet-50 text-violet-600 dark:bg-violet-950/60 dark:text-violet-300" },
                                 { key: "profile", label: "My Profile", desc: "Lifestyle preferences, budget, habits & bio", icon: UserRoundIcon, color: "bg-sky-50 text-sky-600 dark:bg-sky-950/60 dark:text-sky-300" },
                                 { key: "settings", label: "Settings", desc: "Account security, password & UPI ID", icon: SettingsIcon, color: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" },
+                                { key: "rooms", label: "Rooms & Vacancies", desc: "Publish listings and apply to living groups", icon: BuildingIcon, color: "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-300" },
                             ].map(({ key, label, desc, icon: ItemIcon, color }) => {
                                 const active = page === key;
                                 return (

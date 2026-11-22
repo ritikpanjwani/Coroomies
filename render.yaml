@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: coroomies-api
+    runtime: python
+    plan: starter
+    buildCommand: cd backend && python -m pip install -r requirements.txt
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /health/ready
+    envVars:
+      - key: ENVIRONMENT
+        value: staging
+      - key: DEV_MODE
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: OTP_PEPPER_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: RATE_LIMIT_FAIL_CLOSED
+        value: "true"
+      - key: TRUSTED_PROXIES
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_CHAT_BUCKET
+        value: chat-media
+      - key: SUPABASE_AVATAR_BUCKET
+        value: profile-avatars
+      - key: SUPABASE_GROUP_AVATAR_BUCKET
+        value: group-avatars

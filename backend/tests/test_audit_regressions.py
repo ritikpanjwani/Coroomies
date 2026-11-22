@@ -45,3 +45,218 @@ def test_profile_ranges_are_ordered_and_age_appropriate():
         ProfileCreate(preferred_age_min=40, preferred_age_max=18)
     with pytest.raises(ValidationError):
         ProfileCreate(preferred_age_min=17)
+
+
+@pytest.mark.integration
+def test_request_and_messaging_smoke_on_repaired_schema():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import create_access_token
+    from app.database import get_connection
+    import bcrypt
+
+    caller_id = 99771
+    peer_id = 99772
+    pw_hash = bcrypt.hashpw(b"StagingSmoke123!", bcrypt.gensalt()).decode()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM users WHERE id IN (%s, %s)",
+                (caller_id, peer_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES
+                    (%s, %s, %s, %s),
+                    (%s, %s, %s, %s)
+                """,
+                (
+                    caller_id, "Request Caller", "request-caller@example.test", pw_hash,
+                    peer_id, "Message Peer", "message-peer@example.test", pw_hash,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO roommate_requests
+                (sender_id, receiver_id, status, created_at)
+                VALUES (%s, %s, 'accepted', NOW())
+                """,
+                (caller_id, peer_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    token = create_access_token(caller_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    client = TestClient(app)
+
+    received = client.get("/requests/received", headers=headers)
+    sent = client.get("/requests/sent", headers=headers)
+    combined = client.get("/requests/", headers=headers)
+    friends = client.get("/messages/friends", headers=headers)
+    inbox = client.get("/messages/", headers=headers)
+    blocked = client.get("/messages/blocked-users", headers=headers)
+
+    assert received.status_code == 200
+    assert sent.status_code == 200
+    assert combined.status_code == 200
+    assert friends.status_code == 200
+    assert inbox.status_code == 200
+    assert blocked.status_code == 200
+    assert "blocked_users" in blocked.json()
+
+    sent_message = client.post(
+        "/messages/",
+        headers=headers,
+        json={"receiver_id": peer_id, "content": "Staging smoke message"},
+    )
+    assert sent_message.status_code == 200
+
+    thread = client.get(f"/messages/{peer_id}", headers=headers)
+    assert thread.status_code == 200
+    assert any(
+        message["content"] == "Staging smoke message"
+        for message in thread.json()["messages"]
+    )
+
+    muted = client.put(
+        f"/messages/{peer_id}/mute",
+        headers=headers,
+        json={"is_muted": True},
+    )
+    assert muted.status_code == 200
+    assert muted.json()["is_muted"] is True
+    unmuted = client.put(
+        f"/messages/{peer_id}/mute",
+        headers=headers,
+        json={"is_muted": False},
+    )
+    assert unmuted.status_code == 200
+    assert unmuted.json()["is_muted"] is False
+
+
+@pytest.mark.integration
+def test_shared_payment_requires_recipient_confirmation():
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.auth import create_access_token
+    from app.database import get_connection
+    import bcrypt
+
+    recipient_id = 99781
+    payer_id = 99782
+    group_id = 99783
+    pw_hash = bcrypt.hashpw(b"PaymentSmoke123!", bcrypt.gensalt()).decode()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM living_groups WHERE id = %s",
+                (group_id,),
+            )
+            cursor.execute(
+                "DELETE FROM users WHERE id IN (%s, %s)",
+                (recipient_id, payer_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES
+                    (%s, %s, %s, %s),
+                    (%s, %s, %s, %s)
+                """,
+                (
+                    recipient_id, "Payment Recipient", "payment-recipient@example.test", pw_hash,
+                    payer_id, "Payment Payer", "payment-payer@example.test", pw_hash,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO living_groups
+                (id, name, description, invite_code, created_by, created_at, open_slots)
+                VALUES (%s, %s, %s, %s, %s, NOW(), 0)
+                """,
+                (group_id, "Payment Smoke Group", "Isolated payment test", "PAYSMOKE1", recipient_id),
+            )
+            cursor.execute(
+                """
+                INSERT INTO group_members
+                (group_id, user_id, role, status, joined_at)
+                VALUES
+                    (%s, %s, 'admin', 'active', NOW()),
+                    (%s, %s, 'member', 'active', NOW())
+                """,
+                (group_id, recipient_id, group_id, payer_id),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    recipient_headers = {"Authorization": f"Bearer {create_access_token(recipient_id)}"}
+    payer_headers = {"Authorization": f"Bearer {create_access_token(payer_id)}"}
+    client = TestClient(app)
+
+    created = client.post(
+        "/shared-expenses/",
+        headers=recipient_headers,
+        json={"group_id": group_id, "description": "Payment smoke expense", "amount": 12.35},
+    )
+    assert created.status_code == 200
+    expense_id = created.json()["expense_id"]
+
+    detail = client.get(f"/shared-expenses/{expense_id}", headers=payer_headers)
+    assert detail.status_code == 200
+    payer_share = next(
+        share for share in detail.json()["shares"]
+        if share["user_id"] == payer_id
+    )
+    share_id = payer_share["id"]
+
+    report = client.post(
+        f"/shared-expenses/{expense_id}/shares/{share_id}/report-payment",
+        headers=payer_headers,
+        json={"payment_reference": "SMOKE-UTR-123"},
+    )
+    assert report.status_code == 200
+    assert report.json()["status"] == "payment_reported"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT status, payment_confirmed_at FROM expense_shares WHERE id = %s",
+                (share_id,),
+            )
+            status, confirmed_at = cursor.fetchone()
+            assert status == "payment_reported"
+            assert confirmed_at is None
+    finally:
+        conn.close()
+
+    confirm = client.post(
+        f"/shared-expenses/{expense_id}/shares/{share_id}/confirm-payment",
+        headers=recipient_headers,
+    )
+    assert confirm.status_code == 200
+    assert confirm.json()["status"] == "paid"
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT status, payment_confirmed_at FROM expense_shares WHERE id = %s",
+                (share_id,),
+            )
+            status, confirmed_at = cursor.fetchone()
+            assert status == "paid"
+            assert confirmed_at is not None
+            cursor.execute(
+                "SELECT COUNT(*) FROM expense_settlements WHERE group_id = %s",
+                (group_id,),
+            )
+            assert cursor.fetchone()[0] >= 1
+    finally:
+        conn.close()

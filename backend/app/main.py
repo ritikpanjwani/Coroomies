@@ -1,6 +1,6 @@
 import os
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -97,6 +97,8 @@ register_error_handlers(app)
 
 @app.get("/docs", include_in_schema=False)
 async def custom_swagger_ui_html():
+    if IS_PRODUCTION:
+        raise HTTPException(status_code=404, detail="Not Found")
     return get_swagger_ui_html(
         openapi_url="/openapi.json",
         title="CoRoomies API - Swagger UI",
@@ -111,8 +113,8 @@ def root():
     return {
         "status": "ok",
         "service": "CoRoomies Backend API",
-        "message": "The backend API is running. If you want to use the CoRoomies web application, open your Frontend URL in the browser. For API documentation, visit /docs.",
-        "docs_url": "/docs",
+        "message": "The backend API is running.",
+        "docs_url": None if IS_PRODUCTION else "/docs",
         "health_url": "/health",
     }
 

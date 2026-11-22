@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { XIcon } from "../Icons";
 
 export default function Modal({
@@ -9,25 +10,72 @@ export default function Modal({
   maxWidth = "max-w-lg",
   showClose = true,
 }) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
   useEffect(() => {
     if (!open) return;
 
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose();
+    const previouslyFocused = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    const root = document.getElementById("root");
+    if (root) root.setAttribute("inert", "");
+
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+
+      const focusable = Array.from(
+        dialogRef.current.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((element) => !element.hasAttribute("hidden"));
+
+      if (focusable.length === 0) {
+        event.prevent(event);
+        dialogRef.current.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
 
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
+    requestAnimationFrame(() => {
+      const initial = dialogRef.current?.querySelector(
+        "[data-autofocus], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])"
+      );
+      (initial || dialogRef.current)?.focus();
+    });
 
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
+      if (root) root.removeAttribute("inert");
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -37,6 +85,8 @@ export default function Modal({
         onClick={onClose}
       />
       <div
+        ref={dialogRef}
+        tabIndex="-1"
         role="dialog"
         aria-modal="true"
         aria-label={title || "Dialog"}
@@ -58,6 +108,7 @@ export default function Modal({
         )}
         <div className="p-4 sm:p-6 sm:max-h-[75vh] sm:overflow-y-auto">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

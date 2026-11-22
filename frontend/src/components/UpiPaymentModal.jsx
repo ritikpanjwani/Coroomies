@@ -140,7 +140,7 @@ export default function UpiPaymentModal({
                     `/shared-expenses/${expense.id}/shares/${share.id}/report-payment`,
                     { payment_reference: reference.trim() || null }
                 );
-                toast.success(res.data.message || "Payment cleared and marked as Paid!");
+                toast.success(res.data.message || "Payment reported. Waiting for recipient confirmation.");
             } else if (owedItem) {
                 const targetGroupId = groupId || expense?.group_id;
                 const res = await api.post("/shared-expenses/settle-up-report", {
@@ -150,7 +150,7 @@ export default function UpiPaymentModal({
                     payment_reference: reference.trim() || null,
                     note: reference.trim() || `UPI payment to ${recipientName}`,
                 });
-                toast.success(res.data?.message || "Payment cleared and marked as Paid!");
+                toast.success(res.data?.message || "Payment reported. Waiting for recipient confirmation.");
             }
             if (onStatusUpdated) await onStatusUpdated();
             onClose();
@@ -438,10 +438,10 @@ export default function UpiPaymentModal({
                                 <div>
                                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
                                         <ShieldCheckIcon className="h-3.5 w-3.5 text-brand-500" />
-                                        Step 2: Clear Split After Transferring
+                                        Step 2: Report Payment After Transferring
                                     </div>
                                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                                        Once your transfer is completed, record it here to clear your split and mark it Paid immediately.
+                                        Once your transfer is completed, report it here. The recipient must verify receipt before it is marked Paid.
                                     </p>
                                 </div>
 
@@ -462,7 +462,7 @@ export default function UpiPaymentModal({
                                     onClick={handleReportPayment}
                                 >
                                     <CheckIcon className="h-4 w-4" />
-                                    I Have Paid — Clear Split ({formatCurrency(amount)})
+                                    I Have Paid — Report Payment ({formatCurrency(amount)})
                                 </Button>
                             </div>
                         )}

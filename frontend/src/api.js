@@ -78,11 +78,6 @@ api.interceptors.response.use(
             removeToken();
             if (typeof window !== "undefined") {
                 window.dispatchEvent(new CustomEvent("coroomies:session-expired"));
-                // Guard against destructive reload if user is currently typing in a form or chat
-                const isTyping = document.activeElement && ["INPUT", "TEXTAREA"].includes(document.activeElement.tagName);
-                if (!isTyping) {
-                    window.location.reload();
-                }
             }
         }
         return Promise.reject(error);

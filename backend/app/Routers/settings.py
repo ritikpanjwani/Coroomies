@@ -5,6 +5,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, File
+from fastapi.responses import Response
 
 from app.auth import create_access_token, get_current_user_id
 from app.config import DEV_MODE
@@ -22,6 +23,7 @@ from app.image_validation import (
 from app.rate_limit import enforce, get_client_ip
 from app.schemas import AccountUpdate, EmailChangeRequest, EmailChangeConfirm, PasswordChange
 from app.security import hash_password, verify_password, hash_otp, verify_otp_hash
+from app.storage import avatar_storage
 
 logger = logging.getLogger("coroomies.settings")
 
@@ -182,17 +184,15 @@ def upload_avatar(
     # are never used to build a path. The extension comes from the detected
     # content, not from the client.
     filename = f"{user_id}_{uuid.uuid4().hex[:12]}{detected_ext}"
-    filepath = os.path.join(AVATAR_DIR, filename)
-
     try:
-        with open(filepath, "wb") as f:
-            f.write(contents)
+        avatar_storage.save(filename, contents)
+    except RuntimeError as exc:
+        logger.error("Avatar storage upload failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Failed to save avatar")
     except OSError:
-        if os.path.exists(filepath):
-            os.remove(filepath)
         raise HTTPException(status_code=500, detail="Failed to save avatar")
 
-    avatar_url = f"/uploads/avatars/{filename}"
+    avatar_url = f"/settings/avatar-file/{filename}"
 
     connection = get_connection()
     try:
@@ -204,9 +204,7 @@ def upload_avatar(
             old = cursor.fetchone()
             if old and old[0]:
                 old_filename = os.path.basename(old[0])
-                old_path = os.path.join(AVATAR_DIR, old_filename)
-                if os.path.exists(old_path):
-                    os.remove(old_path)
+                avatar_storage.delete(old_filename)
 
             cursor.execute(
                 "UPDATE users SET avatar_url = %s WHERE id = %s",
@@ -232,9 +230,7 @@ def remove_avatar(user_id: int = Depends(get_current_user_id)):
             if not row or not row[0]:
                 raise HTTPException(status_code=404, detail="No avatar to remove")
 
-            old_path = os.path.join(AVATAR_DIR, os.path.basename(row[0]))
-            if os.path.exists(old_path):
-                os.remove(old_path)
+            avatar_storage.delete(os.path.basename(row[0]))
 
             cursor.execute(
                 "UPDATE users SET avatar_url = NULL WHERE id = %s",
@@ -582,6 +578,38 @@ def change_password(
                 "access_token": create_access_token(user_id, new_token_version),
                 "token_type": "bearer",
             }
+    finally:
+        connection.close()
+
+
+@router.get("/avatar-file/{filename}")
+def get_avatar_file(
+    filename: str,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Serve a profile photo through an authenticated API route."""
+    safe_name = os.path.basename(filename)
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT id FROM users WHERE avatar_url LIKE %s",
+                (f"%{safe_name}",),
+            )
+            if not cursor.fetchone():
+                raise HTTPException(status_code=404, detail="Avatar not found")
+        data = avatar_storage.read_bytes(safe_name)
+        if data is None:
+            raise HTTPException(status_code=404, detail="Avatar not found")
+        ext = os.path.splitext(safe_name)[1].lower()
+        media_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }.get(ext, "application/octet-stream")
+        return Response(content=data, media_type=media_type, headers={"Cache-Control": "private, max-age=300"})
     finally:
         connection.close()
 

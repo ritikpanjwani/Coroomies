@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "./api";
 import Avatar from "./components/ui/Avatar";
 import Badge from "./components/ui/Badge";
@@ -144,6 +144,7 @@ function Assistant() {
     const [analysisError, setAnalysisError] = useState(false);
 const [section, setSection] = useState("health");
     const toast = useToast();
+    const analysisRequestRef = useRef(0);
 
     const loadGroups = useCallback(async () => {
         const res = await api.get("/groups/");
@@ -157,16 +158,19 @@ const [section, setSection] = useState("health");
             setAnalysis(null);
             return;
         }
+        const requestId = ++analysisRequestRef.current;
         try {
             if (showSpinner) setLoadingAnalysis(true);
             setAnalysisError(false);
             const res = await api.get("/assistant/analysis", { params: { group_id: groupId } });
+            if (analysisRequestRef.current !== requestId) return;
             setAnalysis(res.data);
         } catch (error) {
+            if (analysisRequestRef.current !== requestId) return;
             setAnalysisError(true);
             toast.error(errorMessage(error, "Could not analyze group"));
         } finally {
-            if (showSpinner) setLoadingAnalysis(false);
+            if (showSpinner && analysisRequestRef.current === requestId) setLoadingAnalysis(false);
         }
     }, [toast]);
 

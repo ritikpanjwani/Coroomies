@@ -287,29 +287,73 @@ def test_client():
 def test_api_public_profile_never_exposes_dob(test_client):
     """Ensure GET /profile/{target_id} NEVER exposes dob in response."""
     from app.auth import create_access_token
+    from app.database import get_connection
+    import bcrypt
 
-    # Generate token for a test caller
-    caller_token = create_access_token(1)
+    conn = get_connection()
+    caller_id = 99891
+    subject_id = 99892
+    pw_hash = bcrypt.hashpw(b"PrivacyTest123!", bcrypt.gensalt()).decode()
+
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM users WHERE id IN (%s, %s)", (caller_id, subject_id))
+            cursor.execute(
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES (%s, %s, %s, %s), (%s, %s, %s, %s)
+                """,
+                (
+                    caller_id, "Privacy Caller", "privacy-caller@example.test", pw_hash,
+                    subject_id, "Privacy Subject", "privacy-subject@example.test", pw_hash,
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO student_profiles (user_id, dob, gender, preferred_flatmate_gender)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (subject_id, "2000-06-15", "female", "female"),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    caller_token = create_access_token(caller_id)
     headers = {"Authorization": f"Bearer {caller_token}"}
-
-    # Fetch a public profile
-    response = test_client.get("/profile/2", headers=headers)
-    if response.status_code == 200:
-        data = response.json()
-        # DOB must NOT be exposed at top-level or inside profile
-        assert "dob" not in data
-        if data.get("profile"):
-            assert "dob" not in data["profile"]
-            # But calculated age may be present
-            assert "age" in data["profile"]
+    response = test_client.get(f"/profile/{subject_id}", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert "dob" not in data
+    assert "dob" not in data.get("profile", {})
+    assert "age" in data.get("profile", {})
 
 
 @pytest.mark.integration
 def test_api_completion_status_endpoint(test_client):
     """Ensure GET /profile/completion-status returns is_complete and missing_fields."""
     from app.auth import create_access_token
+    from app.database import get_connection
+    import bcrypt
 
-    token = create_access_token(1)
+    conn = get_connection()
+    user_id = 99893
+    pw_hash = bcrypt.hashpw(b"CompletionTest123!", bcrypt.gensalt()).decode()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            cursor.execute(
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (user_id, "Completion User", "completion-user@example.test", pw_hash),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    token = create_access_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
 
     response = test_client.get("/profile/completion-status", headers=headers)

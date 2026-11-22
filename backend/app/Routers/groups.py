@@ -16,6 +16,8 @@ from app.image_validation import (
     detect_image_extension,
     read_limited,
 )
+from app.storage import group_avatar_storage
+from fastapi.responses import Response
 
 router = APIRouter(
     prefix="/groups",
@@ -1266,6 +1268,40 @@ def update_group(
         connection.close()
 
 
+@router.get("/{group_id}/avatar-file/{filename}")
+def get_group_avatar_file(
+    group_id: int,
+    filename: str,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Serve a group photo only to authenticated active group members."""
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            _require_active_member(cursor, group_id, user_id)
+            cursor.execute(
+                "SELECT avatar_url FROM living_groups WHERE id = %s",
+                (group_id,),
+            )
+            row = cursor.fetchone()
+            if not row or not row[0] or os.path.basename(row[0]) != os.path.basename(filename):
+                raise HTTPException(status_code=404, detail="Group photo not found")
+        data = group_avatar_storage.read_bytes(os.path.basename(filename))
+        if data is None:
+            raise HTTPException(status_code=404, detail="Group photo not found")
+        ext = os.path.splitext(filename)[1].lower()
+        media_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }.get(ext, "application/octet-stream")
+        return Response(content=data, media_type=media_type, headers={"Cache-Control": "private, max-age=300"})
+    finally:
+        connection.close()
+
+
 @router.post("/{group_id}/avatar")
 def upload_group_avatar(
     group_id: int,
@@ -1292,12 +1328,11 @@ def upload_group_avatar(
             _require_active_member(cursor, group_id, user_id)
 
             filename = f"group_{group_id}_{uuid.uuid4().hex[:12]}{detected_ext}"
-            filepath = os.path.join(GROUP_AVATAR_DIR, filename)
-
-            with open(filepath, "wb") as f:
-                f.write(contents)
-
-            avatar_url = f"/uploads/groups/{filename}"
+            try:
+                group_avatar_storage.save(filename, contents)
+            except RuntimeError:
+                raise HTTPException(status_code=500, detail="Failed to save group photo")
+            avatar_url = f"/groups/{group_id}/avatar-file/{filename}"
 
             cursor.execute(
                 "SELECT avatar_url FROM living_groups WHERE id = %s",
@@ -1305,9 +1340,7 @@ def upload_group_avatar(
             )
             old = cursor.fetchone()
             if old and old[0]:
-                old_path = os.path.join(GROUP_AVATAR_DIR, os.path.basename(old[0]))
-                if os.path.exists(old_path):
-                    os.remove(old_path)
+                group_avatar_storage.delete(os.path.basename(old[0]))
 
             cursor.execute(
                 "UPDATE living_groups SET avatar_url = %s WHERE id = %s",
@@ -1342,9 +1375,7 @@ def remove_group_avatar(
             if not row or not row[0]:
                 raise HTTPException(status_code=404, detail="No group photo to remove")
 
-            old_path = os.path.join(GROUP_AVATAR_DIR, os.path.basename(row[0]))
-            if os.path.exists(old_path):
-                os.remove(old_path)
+            group_avatar_storage.delete(os.path.basename(row[0]))
 
             cursor.execute(
                 "UPDATE living_groups SET avatar_url = NULL WHERE id = %s",

@@ -2,7 +2,7 @@ import os
 import uuid
 from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_user_id
@@ -465,20 +465,19 @@ def get_media(
                     detail="You are not authorized to access this media file",
                 )
 
-            file_path = media_storage.get_path(storage_path)
-            if not file_path or not file_path.is_file():
+            data = media_storage.read_bytes(storage_path)
+            if data is None:
                 raise HTTPException(status_code=404, detail="Media file no longer exists on server")
-
-            return FileResponse(
-                path=str(file_path),
-                media_type=mime_type,
-                filename=orig_filename,
+            return Response(
+                content=data,
+                media_type=mime_type or "application/octet-stream",
+                headers={"Content-Disposition": f'inline; filename="{orig_filename.replace(chr(34), "")}"'},
             )
     finally:
         connection.close()
 
 
-@router.get("/{user_id}")
+@router.get("/{user_id:int}")
 def get_conversation(
     user_id: int,
     current_user_id: int = Depends(get_current_user_id),

@@ -1005,61 +1005,27 @@ def report_share_payment(
             cursor.execute(
                 """
                 UPDATE expense_shares
-                SET status = 'paid',
+                SET status = 'payment_reported',
                     payment_reported_at = NOW(),
-                    payment_confirmed_at = NOW(),
+                    payment_confirmed_at = NULL,
                     payment_reference = %s
                 WHERE id = %s
                 """,
                 (ref, share_db_id),
             )
 
-            # Check if all shares for this expense are now paid
-            cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM expense_shares
-                WHERE expense_id = %s AND status != 'paid'
-                """,
-                (expense_id,),
-            )
-            unpaid_count = cursor.fetchone()[0]
-
-            if unpaid_count == 0:
-                cursor.execute(
-                    "UPDATE shared_expenses SET status = 'settled' WHERE id = %s",
-                    (expense_id,),
-                )
-
             # Look up payer name
             cursor.execute("SELECT name FROM users WHERE id = %s", (user_id,))
             payer_name = cursor.fetchone()[0]
 
-            # Record in settlements audit trail
             ref_str = f" (Ref: {ref})" if ref else ""
-            cursor.execute(
-                """
-                INSERT INTO expense_settlements
-                (group_id, payer_id, receiver_id, amount, note, settled_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    group_id,
-                    user_id,
-                    expense_payer_id,
-                    float(amount),
-                    f"[reconciled:ids={share_db_id}] {description}{ref_str}",
-                    local_today().isoformat(),
-                ),
-            )
-
             # Notify recipient via in-app notification
             if expense_payer_id != user_id:
                 create_notification(
                     cursor=cursor,
                     user_id=expense_payer_id,
                     title="Split Payment Received",
-                    message=f"{payer_name} paid ₹{float(amount):.2f} for '{description}'{ref_str}. Auto-marked as Paid.",
+                    message=f"{payer_name} reported ₹{float(amount):.2f} paid for '{description}'{ref_str}. Please verify receipt.",
                     notification_type="payment_confirmed",
                     reference_id=str(group_id),
                     reference_type="group",
@@ -1070,13 +1036,13 @@ def report_share_payment(
             connection.commit()
 
             return {
-                "message": "Payment cleared and marked as Paid!",
+                "message": "Payment reported. Waiting for recipient confirmation.",
                 "share_id": share_db_id,
-                "status": "paid",
+                "status": "payment_reported",
                 "amount": float(amount),
                 "payment_reference": ref,
-                "expense_status": "settled" if unpaid_count == 0 else "pending",
-                "expense_settled": unpaid_count == 0,
+                "expense_status": "pending",
+                "expense_settled": False,
             }
     finally:
         connection.close()
@@ -1146,6 +1112,11 @@ def confirm_share_payment(
                     status_code=400,
                     detail="This share is already marked as paid",
                 )
+            if status != "payment_reported":
+                raise HTTPException(
+                    status_code=400,
+                    detail="This share has not been reported as paid",
+                )
 
             cursor.execute(
                 """
@@ -1173,6 +1144,37 @@ def confirm_share_payment(
                     "UPDATE shared_expenses SET status = 'settled' WHERE id = %s",
                     (expense_id,),
                 )
+
+            cursor.execute(
+                """
+                DELETE FROM expense_settlements
+                WHERE group_id = %s
+                  AND payer_id = %s
+                  AND receiver_id = %s
+                  AND note LIKE %s
+                """,
+                (
+                    group_id,
+                    share_user_id,
+                    expense_payer_id,
+                    f"%[reconciled:ids={share_db_id}]%",
+                ),
+            )
+            cursor.execute(
+                """
+                INSERT INTO expense_settlements
+                (group_id, payer_id, receiver_id, amount, note, settled_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    group_id,
+                    share_user_id,
+                    expense_payer_id,
+                    float(amount),
+                    f"[reconciled:ids={share_db_id}] {description}",
+                    local_today().isoformat(),
+                ),
+            )
 
             # Send notification to the roommate who paid
             if share_user_id != user_id:
@@ -1626,6 +1628,17 @@ def report_settle_up_payment(
                 (data.group_id, data.receiver_id, user_id),
             )
             pending_shares = cursor.fetchall()
+            pending_total = round(
+                sum(float(share[1]) for share in pending_shares),
+                2,
+            )
+            if float(data.amount) <= 0:
+                raise HTTPException(status_code=400, detail="Payment amount must be greater than zero")
+            if float(data.amount) > pending_total:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Payment amount exceeds the outstanding balance of ₹{pending_total:.2f}",
+                )
 
             ref = data.payment_reference.strip() if data.payment_reference else None
             remaining = round(float(data.amount), 2)
@@ -1641,10 +1654,10 @@ def report_settle_up_payment(
                     cursor.execute(
                         """
                         UPDATE expense_shares
-                        SET status = 'paid',
-                            payment_reported_at = NOW(),
-                            payment_confirmed_at = NOW(),
-                            payment_reference = %s
+                        SET status = 'payment_reported',
+                                payment_reported_at = NOW(),
+                                payment_confirmed_at = NULL,
+                                payment_reference = %s
                         WHERE id = %s
                         """,
                         (ref, s_id),
@@ -1666,8 +1679,8 @@ def report_settle_up_payment(
                     cursor.execute(
                         """
                         INSERT INTO expense_shares
-                        (expense_id, user_id, amount, status, payment_reported_at, payment_confirmed_at, payment_reference)
-                        VALUES (%s, %s, %s, 'paid', NOW(), NOW(), %s)
+                            (expense_id, user_id, amount, status, payment_reported_at, payment_confirmed_at, payment_reference)
+                            VALUES (%s, %s, %s, 'payment_reported', NOW(), NULL, %s)
                         RETURNING id
                         """,
                         (exp_id, user_id, remaining, ref),
@@ -1678,48 +1691,14 @@ def report_settle_up_payment(
                     remaining = 0.0
                     break
 
-            # Check if affected expenses are now fully settled
-            for exp_id in affected_expenses:
-                cursor.execute(
-                    "SELECT COUNT(*) FROM expense_shares WHERE expense_id = %s AND status != 'paid'",
-                    (exp_id,),
-                )
-                unpaid = cursor.fetchone()[0]
-                if unpaid == 0:
-                    cursor.execute(
-                        "UPDATE shared_expenses SET status = 'settled' WHERE id = %s",
-                        (exp_id,),
-                    )
-
-            ref_str = f" (Ref: {ref})" if ref else ""
-            if updated_share_ids:
-                note_str = f"[reconciled:ids={','.join(map(str, updated_share_ids))}]{ref_str}"
-            else:
-                note_str = data.note or f"Settlement payment{ref_str}"
-
-            cursor.execute(
-                """
-                INSERT INTO expense_settlements
-                (group_id, payer_id, receiver_id, amount, note, settled_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id
-                """,
-                (
-                    data.group_id,
-                    user_id,
-                    data.receiver_id,
-                    float(data.amount),
-                    note_str,
-                    local_today().isoformat(),
-                ),
-            )
-            settlement_id = cursor.fetchone()[0]
+            if not updated_share_ids:
+                raise HTTPException(status_code=400, detail="No pending balance was found to report")
 
             create_notification(
                 cursor=cursor,
                 user_id=data.receiver_id,
-                title="Settlement Payment Cleared",
-                message=f"{payer_name} cleared ₹{float(data.amount):.2f} to settle shared expenses{ref_str}. Auto-marked as Paid.",
+                title="Settlement Payment Reported",
+                message=f"{payer_name} reported ₹{float(data.amount):.2f} as paid to settle shared expenses. Please verify receipt.",
                 notification_type="payment_confirmed",
                 reference_id=str(data.group_id),
                 reference_type="group",
@@ -1729,8 +1708,8 @@ def report_settle_up_payment(
 
             connection.commit()
             return {
-                "message": f"Payment of ₹{float(data.amount):.2f} cleared and marked Paid!",
-                "settlement_id": settlement_id,
+                "message": f"Payment of ₹{float(data.amount):.2f} reported. Waiting for recipient confirmation.",
+                "settlement_id": None,
                 "updated_shares": len(updated_share_ids),
                 "amount": float(data.amount),
                 "receiver_name": receiver_name,
@@ -1801,6 +1780,12 @@ def confirm_settlement_receipt(
                     (s_id,),
                 )
 
+            if total_confirmed == 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No reported settlement payment was found to confirm",
+                )
+
             # Check if affected expenses are now fully settled
             for exp_id in affected_expenses:
                 cursor.execute(
@@ -1828,23 +1813,6 @@ def confirm_settlement_receipt(
                         user_id,
                         total_confirmed,
                         f"[reconciled] Confirmed settlement{ref_text}",
-                        local_today().isoformat(),
-                    ),
-                )
-            elif data.amount and data.amount > 0:
-                total_confirmed = round(float(data.amount), 2)
-                cursor.execute(
-                    """
-                    INSERT INTO expense_settlements
-                    (group_id, payer_id, receiver_id, amount, note, settled_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        data.group_id,
-                        data.payer_id,
-                        user_id,
-                        total_confirmed,
-                        "Confirmed balance settlement",
                         local_today().isoformat(),
                     ),
                 )
