@@ -35,10 +35,15 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 config = context.config
 
-config.set_main_option(
-    "sqlalchemy.url",
-    DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1),
-)
+if DATABASE_URL:
+    db_url = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+    # ConfigParser treats '%' as interpolation syntax. Escaping '%' to '%%'
+    # allows URL-encoded characters in database credentials (e.g. '%40' for '@')
+    # without triggering ValueError: invalid interpolation syntax.
+    config.set_main_option(
+        "sqlalchemy.url",
+        db_url.replace("%", "%%"),
+    )
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -47,7 +52,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = DATABASE_URL
+    url = config.get_main_option("sqlalchemy.url") or DATABASE_URL
 
     context.configure(
         url=url,

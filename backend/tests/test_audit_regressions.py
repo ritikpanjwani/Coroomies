@@ -260,3 +260,72 @@ def test_shared_payment_requires_recipient_confirmation():
             assert cursor.fetchone()[0] >= 1
     finally:
         conn.close()
+
+
+def test_alembic_config_escapes_percent_encoded_database_password():
+    """Verify Alembic ConfigParser handles percent-encoded passwords without ValueError.
+
+    Supabase connection strings frequently have URL-encoded special characters such
+    as '%40' for '@', '%23' for '#', '%25' for '%', and '%21' for '!'.
+    ConfigParser BasicInterpolation treats bare '%' as an interpolation token,
+    raising ValueError: invalid interpolation syntax. Escaping '%' to '%%' before
+    calling set_main_option allows safe storage, unescapes cleanly upon retrieval,
+    and preserves the correct decoded password for SQLAlchemy and psycopg.
+    """
+    import os
+    from alembic.config import Config
+    from sqlalchemy.engine.url import make_url
+
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ini_path = os.path.join(backend_dir, "alembic.ini")
+
+    encoded_pw = "Supab%40se%23Pass%25123%21"
+    raw_url = f"postgresql://supabase_user:{encoded_pw}@aws-0-ap-south-1.pooler.supabase.com:6543/postgres"
+    db_url = raw_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+    # 1. Reproduce: unescaped '%' must raise ValueError: invalid interpolation syntax
+    cfg_unprotected = Config(ini_path)
+    with pytest.raises(ValueError, match="invalid interpolation syntax"):
+        cfg_unprotected.set_main_option("sqlalchemy.url", db_url)
+        cfg_unprotected.get_main_option("sqlalchemy.url")
+
+    # 2. Verify fix: escaping '%' -> '%%' allows seamless retrieval & interpolation
+    cfg_protected = Config(ini_path)
+    cfg_protected.set_main_option("sqlalchemy.url", db_url.replace("%", "%%"))
+
+    retrieved_url = cfg_protected.get_main_option("sqlalchemy.url")
+    assert retrieved_url == db_url
+
+    section = cfg_protected.get_section(cfg_protected.config_ini_section, {})
+    assert section.get("sqlalchemy.url") == db_url
+
+    # 3. Verify SQLAlchemy make_url properly unquotes back to exact credentials
+    parsed = make_url(section.get("sqlalchemy.url"))
+    assert parsed.username == "supabase_user"
+    assert parsed.password == "Supab@se#Pass%123!"
+    assert parsed.drivername == "postgresql+psycopg"
+
+
+def test_alembic_offline_migration_with_encoded_password(monkeypatch, capsys):
+    """Verify running Alembic offline migration generation with percent-encoded credentials."""
+    import os
+    from alembic.config import Config
+    from alembic import command
+
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ini_path = os.path.join(backend_dir, "alembic.ini")
+
+    # Set mock DATABASE_URL containing URL-encoded characters (%40, %23, etc.)
+    encoded_url = "postgresql://mock_user:Supab%40se%23Pass%25123%21@db.supabase.co:5432/postgres"
+    monkeypatch.setenv("DATABASE_URL", encoded_url)
+
+    cfg = Config(ini_path)
+
+    # Offline upgrade (sql=True) runs env.py offline path without connecting to remote DB
+    command.upgrade(cfg, "head", sql=True)
+    captured = capsys.readouterr()
+
+    assert "CREATE TABLE users" in captured.out
+    assert "consolidated_migration_heads" in captured.out
+
+
