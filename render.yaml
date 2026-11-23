@@ -4,12 +4,14 @@ services:
     runtime: python
     plan: free
     buildCommand: cd backend && python -m pip install -r requirements.txt
-    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
+    startCommand: cd backend && python -m alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips "*"
     healthCheckPath: /health/ready
     envVars:
       - key: ENVIRONMENT
-        value: staging
+        value: production
       - key: DEV_MODE
+        value: "false"
+      - key: RATE_LIMIT_FAIL_CLOSED
         value: "false"
       - key: DATABASE_URL
         sync: false
@@ -21,17 +23,7 @@ services:
         sync: false
       - key: REDIS_URL
         sync: false
-      - key: RATE_LIMIT_FAIL_CLOSED
-        value: "true"
-      - key: TRUSTED_PROXIES
-        sync: false
-      - key: SMTP_HOST
-        sync: false
-      - key: SMTP_PORT
-        value: "587"
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
+      - key: GOOGLE_CLIENT_ID
         sync: false
       - key: SUPABASE_URL
         sync: false
@@ -43,5 +35,11 @@ services:
         value: profile-avatars
       - key: SUPABASE_GROUP_AVATAR_BUCKET
         value: group-avatars
-      - key: GOOGLE_CLIENT_ID
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
         sync: false
