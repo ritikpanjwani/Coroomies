@@ -53,11 +53,11 @@ def test_request_and_messaging_smoke_on_repaired_schema():
     from app.main import app
     from app.auth import create_access_token
     from app.database import get_connection
-    import bcrypt
+    from app.security import hash_password
 
     caller_id = 99771
     peer_id = 99772
-    pw_hash = bcrypt.hashpw(b"StagingSmoke123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("StagingSmoke123!")
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
@@ -144,12 +144,12 @@ def test_shared_payment_requires_recipient_confirmation():
     from app.main import app
     from app.auth import create_access_token
     from app.database import get_connection
-    import bcrypt
+    from app.security import hash_password
 
     recipient_id = 99781
     payer_id = 99782
     group_id = 99783
-    pw_hash = bcrypt.hashpw(b"PaymentSmoke123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("PaymentSmoke123!")
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
@@ -327,5 +327,79 @@ def test_alembic_offline_migration_with_encoded_password(monkeypatch, capsys):
 
     assert "CREATE TABLE users" in captured.out
     assert "consolidated_migration_heads" in captured.out
+
+
+@pytest.mark.parametrize(
+    "raw_scheme,expected_sqla_driver",
+    [
+        ("postgres://", "postgresql+psycopg"),
+        ("postgresql://", "postgresql+psycopg"),
+        ("postgresql+psycopg://", "postgresql+psycopg"),
+    ],
+)
+def test_database_url_scheme_normalization(raw_scheme, expected_sqla_driver):
+    """Verify DATABASE_URL normalization for both psycopg libpq and SQLAlchemy Alembic."""
+    import psycopg
+    from sqlalchemy.engine.url import make_url
+
+    test_url = f"{raw_scheme}test_user:My%40Pass%23word%25123%21@db.host.internal:5432/coroomies_prod"
+
+    # 1. database.py normalization for psycopg ConnectionPool
+    conninfo = test_url
+    if conninfo.startswith("postgresql+psycopg://"):
+        conninfo = "postgresql://" + conninfo[len("postgresql+psycopg://") :]
+    elif conninfo.startswith("postgresql+psycopg2://"):
+        conninfo = "postgresql://" + conninfo[len("postgresql+psycopg2://") :]
+
+    psycopg_dict = psycopg.conninfo.conninfo_to_dict(conninfo)
+    assert psycopg_dict["user"] == "test_user"
+    assert psycopg_dict["password"] == "My@Pass#word%123!"
+
+    # 2. alembic/env.py normalization for SQLAlchemy engine_from_config
+    db_url = test_url
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql+psycopg://" + db_url[len("postgres://") :]
+    elif db_url.startswith("postgresql://"):
+        db_url = "postgresql+psycopg://" + db_url[len("postgresql://") :]
+
+    parsed_sqla = make_url(db_url)
+    assert parsed_sqla.drivername == expected_sqla_driver
+    assert parsed_sqla.username == "test_user"
+    assert parsed_sqla.password == "My@Pass#word%123!"
+
+
+def test_google_auth_transport_requests_importable():
+    """Verify google.auth.transport.requests imports without ModuleNotFoundError: No module named 'requests'."""
+    from google.auth.transport import requests as google_requests
+
+    req = google_requests.Request()
+    assert req is not None
+
+
+def test_requirements_contains_critical_runtime_dependencies():
+    """Verify backend/requirements.txt contains all critical runtime packages."""
+    import os
+
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    reqs_path = os.path.join(backend_dir, "requirements.txt")
+    with open(reqs_path, "r", encoding="utf-8") as f:
+        content = f.read().lower()
+
+    critical_deps = [
+        "fastapi",
+        "uvicorn",
+        "psycopg",
+        "psycopg-pool",
+        "sqlalchemy",
+        "alembic",
+        "pydantic",
+        "requests",
+        "google-auth",
+        "pwdlib",
+        "argon2-cffi",
+    ]
+    for dep in critical_deps:
+        assert dep in content, f"Missing critical dependency in requirements.txt: {dep}"
+
 
 

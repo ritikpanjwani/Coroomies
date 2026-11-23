@@ -36,7 +36,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 config = context.config
 
 if DATABASE_URL:
-    db_url = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+    db_url = DATABASE_URL
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql+psycopg://" + db_url[len("postgres://"):]
+    elif db_url.startswith("postgresql://"):
+        db_url = "postgresql+psycopg://" + db_url[len("postgresql://"):]
     # ConfigParser treats '%' as interpolation syntax. Escaping '%' to '%%'
     # allows URL-encoded characters in database credentials (e.g. '%40' for '@')
     # without triggering ValueError: invalid interpolation syntax.

@@ -288,12 +288,12 @@ def test_api_public_profile_never_exposes_dob(test_client):
     """Ensure GET /profile/{target_id} NEVER exposes dob in response."""
     from app.auth import create_access_token
     from app.database import get_connection
-    import bcrypt
+    from app.security import hash_password
 
     conn = get_connection()
     caller_id = 99891
     subject_id = 99892
-    pw_hash = bcrypt.hashpw(b"PrivacyTest123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("PrivacyTest123!")
 
     try:
         with conn.cursor() as cursor:
@@ -334,11 +334,11 @@ def test_api_completion_status_endpoint(test_client):
     """Ensure GET /profile/completion-status returns is_complete and missing_fields."""
     from app.auth import create_access_token
     from app.database import get_connection
-    import bcrypt
+    from app.security import hash_password
 
     conn = get_connection()
     user_id = 99893
-    pw_hash = bcrypt.hashpw(b"CompletionTest123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("CompletionTest123!")
     try:
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
@@ -370,10 +370,10 @@ def test_api_gender_filtering_and_mutual_exclusion(test_client):
     """End-to-end integration test verifying that Female preferring Female never sees or gets requested by Male."""
     from app.database import get_connection
     from app.auth import create_access_token
-    import bcrypt
+    from app.security import hash_password
 
     conn = get_connection()
-    pw_hash = bcrypt.hashpw(b"TestPass123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("TestPass123!")
 
     u_alice_id = 99901
     u_bob_id = 99902

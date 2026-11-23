@@ -85,11 +85,16 @@ export default defineConfig(({ command, mode }) => {
       host !== '::1' &&
       !host.endsWith('.trycloudflare.com')
 
-    if (!isProductionSafe) {
+    const allowInsecureBuild = (
+      process.env.VITE_ALLOW_INSECURE_BUILD === 'true' ||
+      env.VITE_ALLOW_INSECURE_BUILD === 'true'
+    )
+
+    if (!isProductionSafe && !allowInsecureBuild) {
       throw new Error(
         'Production build requires VITE_API_URL to be an absolute https:// ' +
           'API origin. Localhost, loopback, and Cloudflare Quick Tunnel ' +
-          'URLs are not allowed.'
+          'URLs are not allowed. For local build verification only, set VITE_ALLOW_INSECURE_BUILD=true.'
       )
     }
   }

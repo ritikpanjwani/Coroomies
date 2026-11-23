@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.auth import create_access_token
 from app.database import get_connection
-import bcrypt
+from app.security import hash_password
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def test_blocked_users_route_not_shadowed(client):
     """Verify /messages/blocked-users returns 200 and is not shadowed by /{user_id}."""
     conn = get_connection()
     user_id = 99601
-    pw_hash = bcrypt.hashpw(b"BlockedRouteTest123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("BlockedRouteTest123!")
     try:
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
@@ -74,7 +74,7 @@ def test_token_version_invalidation(client):
     """Verify bumping token_version immediately revokes active access tokens."""
     conn = get_connection()
     user_id = 99602
-    pw_hash = bcrypt.hashpw(b"TokenVerTest123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("TokenVerTest123!")
     try:
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
@@ -118,7 +118,7 @@ def test_room_listing_lifecycle_and_ownership(client):
     conn = get_connection()
     owner_id = 99611
     other_id = 99612
-    pw_hash = bcrypt.hashpw(b"ListingTest123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("ListingTest123!")
     listing_id = None
     try:
         with conn.cursor() as cursor:
@@ -195,7 +195,7 @@ def test_cannot_send_request_to_self(client):
     """Ensure sending a roommate request to self is rejected."""
     conn = get_connection()
     user_id = 99621
-    pw_hash = bcrypt.hashpw(b"SelfReqTest123!", bcrypt.gensalt()).decode()
+    pw_hash = hash_password("SelfReqTest123!")
     try:
         with conn.cursor() as cursor:
             cursor.execute("DELETE FROM roommate_requests WHERE sender_id = %s OR receiver_id = %s", (user_id, user_id))

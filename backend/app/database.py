@@ -25,6 +25,13 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL must be set in environment variables")
 
+# Normalize SQLAlchemy URL schemes to standard PostgreSQL libpq connection strings for psycopg
+_pool_conninfo = DATABASE_URL
+if _pool_conninfo.startswith("postgresql+psycopg://"):
+    _pool_conninfo = "postgresql://" + _pool_conninfo[len("postgresql+psycopg://"):]
+elif _pool_conninfo.startswith("postgresql+psycopg2://"):
+    _pool_conninfo = "postgresql://" + _pool_conninfo[len("postgresql+psycopg2://"):]
+
 
 class PooledConnection(Connection):
     """Connection that cleans up read-only transactions before returning.
@@ -54,7 +61,7 @@ class PooledConnection(Connection):
 
 
 _pool = ConnectionPool(
-    DATABASE_URL,
+    _pool_conninfo,
     min_size=DB_POOL_MIN_SIZE,
     max_size=DB_POOL_MAX_SIZE,
     timeout=DB_POOL_TIMEOUT_SECONDS,
