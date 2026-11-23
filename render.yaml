@@ -43,3 +43,5 @@ services:
         value: profile-avatars
       - key: SUPABASE_GROUP_AVATAR_BUCKET
         value: group-avatars
+      - key: GOOGLE_CLIENT_ID
+        sync: false

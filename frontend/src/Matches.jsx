@@ -354,9 +354,7 @@ function RequestsPanel({ setPage, activeSubtab, onSubtabChange }) {
 
                 setSentRequests(response.data.sent_requests || []);
 
-            } catch (error) {
-
-                console.error(error.response?.data);
+            } catch {
 
                 toast.error("Could not load requests");
 
@@ -1027,8 +1025,8 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                     setSentStatus(sent);
                     setReceivedStatus(received);
                 }
-            } catch (error) {
-                console.error(error.response?.data);
+            } catch {
+                // Ignore background match requests fetch failure
             } finally {
                 setLoading(false);
                 setRefreshing(false);
@@ -1635,9 +1633,7 @@ function StableMatchPanel() {
 
             setData(response.data);
 
-        } catch (error) {
-
-            console.error(error.response?.data);
+        } catch {
 
             toast.error("Could not compute stable matching");
 
@@ -1659,9 +1655,9 @@ function StableMatchPanel() {
 
             setPreferences(response.data.preferences || []);
 
-        } catch (error) {
+        } catch {
 
-            console.error(error.response?.data);
+            // Ignore preference load error; default state handles it
 
         }
 
@@ -2183,9 +2179,7 @@ function TeamUpPanel({ setPage }) {
                 setReceivedStatus(received);
             }
 
-        } catch (error) {
-
-            console.error(error.response?.data);
+        } catch {
 
             toast.error("Could not load team-up posts");
 

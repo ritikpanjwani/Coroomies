@@ -109,7 +109,8 @@ CSP_POLICY = os.getenv(
     "object-src 'none'; form-action 'self'; img-src 'self' data: blob:; "
     "media-src 'self' data: blob:; "
     "script-src 'self' https://accounts.google.com; "
-    "style-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://accounts.google.com; "
+    "style-src-elem 'self' 'unsafe-inline' https://accounts.google.com; "
     "connect-src 'self' https://accounts.google.com",
 ).strip()
 

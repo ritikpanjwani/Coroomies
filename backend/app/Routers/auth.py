@@ -3,6 +3,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from psycopg.errors import UndefinedColumn
 
 from app.auth import create_access_token, get_current_user_id
 from app.config import DEV_MODE
@@ -188,6 +189,11 @@ def _authenticate_google(body, request: Request, link_password: str | None = Non
         raise
     except Exception as exc:
         connection.rollback()
+        if isinstance(exc, UndefinedColumn):
+            raise HTTPException(
+                status_code=503,
+                detail="Google sign-in is temporarily unavailable until the database migration is applied.",
+            ) from exc
         log_exception(logger, "Google authentication failed", exc)
         raise HTTPException(
             status_code=400,

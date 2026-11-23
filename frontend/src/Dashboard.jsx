@@ -230,8 +230,8 @@ function Dashboard() {
                 requests: reqRes.data.pending_count || 0,
             }));
             setRecentNotifications(notifications.slice(0, 8));
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Silently swallow polling failures in background count loader
         }
     }, [page]);
 
@@ -339,8 +339,8 @@ function Dashboard() {
                 if (typeof res.data.unread_count === "number") {
                     setCounts((prev) => ({ ...prev, notifications: res.data.unread_count }));
                 }
-            } catch (error) {
-                console.error(error.response?.data);
+            } catch {
+                // Ignore dropdown fetch error
             }
         }
     };
@@ -353,8 +353,8 @@ function Dashboard() {
             setCounts((prev) => ({ ...prev, notifications: 0 }));
             await api.put("/notifications/read-all");
             await loadCounts();
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Ignore mark-read network failure in dropdown
         }
     };
 

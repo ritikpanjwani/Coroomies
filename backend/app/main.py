@@ -1,5 +1,6 @@
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -85,11 +86,35 @@ from app.Routers.settings import router as settings_router
 from app.database import close_pool, get_connection
 from app.Routers.chores import start_reminder_loop
 
+_reminder_stop_event = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _reminder_stop_event
+    if DEV_MODE_OVERRIDDEN:
+        logger.warning("DEV_MODE was requested but is disabled in production")
+    if IS_PRODUCTION and not smtp_configured():
+        logger.warning(
+            "SMTP is not configured; password reset and email-change "
+            "messages will not be delivered"
+        )
+    logger.info("Starting CoRoomies API (environment=%s)", "production" if IS_PRODUCTION else "development")
+    _reminder_stop_event = start_reminder_loop()
+    try:
+        yield
+    finally:
+        if _reminder_stop_event is not None:
+            _reminder_stop_event.set()
+        close_pool()
+
+
 app = FastAPI(
     title="CoRoomies API",
     docs_url=None,
     redoc_url=None if IS_PRODUCTION else "/redoc",
     openapi_url=None if IS_PRODUCTION else "/openapi.json",
+    lifespan=lifespan,
 )
 
 register_error_handlers(app)
@@ -133,6 +158,29 @@ def health_ready():
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 1")
                 cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = 'public'
+                          AND table_name = 'users'
+                          AND column_name = 'google_sub'
+                    )
+                    """
+                )
+                google_identity_ready = cursor.fetchone()
+                if not google_identity_ready or google_identity_ready[0] is not True:
+                    logger.warning(
+                        "Health readiness check failed: Google identity migration is not applied"
+                    )
+                    return JSONResponse(
+                        status_code=503,
+                        content={
+                            "status": "not ready",
+                            "detail": "Google identity migration required",
+                        },
+                    )
         finally:
             connection.close()
     except Exception as exc:
@@ -145,30 +193,6 @@ def health_ready():
         return JSONResponse(status_code=503, content={"status": "not ready", "detail": "rate limiter unavailable"})
 
     return {"status": "ready"}
-
-
-_reminder_stop_event = None
-
-
-@app.on_event("startup")
-def _start_background_tasks():
-    global _reminder_stop_event
-    if DEV_MODE_OVERRIDDEN:
-        logger.warning("DEV_MODE was requested but is disabled in production")
-    if IS_PRODUCTION and not smtp_configured():
-        logger.warning(
-            "SMTP is not configured; password reset and email-change "
-            "messages will not be delivered"
-        )
-    logger.info("Starting CoRoomies API (environment=%s)", "production" if IS_PRODUCTION else "development")
-    _reminder_stop_event = start_reminder_loop()
-
-
-@app.on_event("shutdown")
-def _stop_background_tasks():
-    if _reminder_stop_event is not None:
-        _reminder_stop_event.set()
-    close_pool()
 
 
 cors_options = {
@@ -196,7 +220,7 @@ async def security_headers(request: Request, call_next):
         "Permissions-Policy",
         "camera=(self), microphone=(), geolocation=(), payment=()",
     )
-    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
     if request.url.path in ("/docs", "/redoc", "/openapi.json"):
         swagger_csp = (
             "default-src 'self'; "

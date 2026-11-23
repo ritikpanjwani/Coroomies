@@ -976,8 +976,8 @@ function Groups() {
                 const firstActive = list.find((g) => g.status === "active") || list[0];
                 return firstActive ? firstActive.group_id : null;
             });
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Silently handle load error; state handles empty groups
         } finally {
             setLoading(false);
         }
@@ -1002,8 +1002,8 @@ function Groups() {
             setLoadingMessages(true);
             const response = await api.get(`/groups/${groupId}/messages`);
             setMessages(response.data.messages || []);
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Fail gracefully on message load error
         } finally {
             setLoadingMessages(false);
         }
@@ -1023,8 +1023,8 @@ function Groups() {
             setExpBalances(balRes.data);
             setExpMembers(memRes.data.members || []);
             setExpSettlements(setRes.data.settlements || []);
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Fail gracefully on expense load error
         } finally {
             setLoadingExpenses(false);
         }

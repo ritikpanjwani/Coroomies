@@ -6,9 +6,9 @@ import tailwindcss from '@tailwindcss/vite'
 const COMMON_SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
-  'Referrer-Policy': 'no-referrer',
+  'Referrer-Policy': 'origin',
   'Permissions-Policy': 'camera=(self), microphone=(), geolocation=(), payment=()',
-  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
 }
 
 function apiOriginFrom(url) {
@@ -20,10 +20,13 @@ function apiOriginFrom(url) {
 }
 
 function contentSecurityPolicy(apiOrigin, { dev }) {
-  const scriptSrc = dev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self'"
+  const googleSources = "https://accounts.google.com https://apis.google.com https://www.gstatic.com"
+  const scriptSrc = dev
+    ? `'self' 'unsafe-inline' 'unsafe-eval' ${googleSources}`
+    : `'self' ${googleSources}`
   const connectSrc = dev
-    ? `'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:8001 http://localhost:8001 ${apiOrigin} https://*.trycloudflare.com ws: wss:`
-    : `'self' ${apiOrigin}`
+    ? `'self' http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:8001 http://localhost:8001 ${apiOrigin} https://accounts.google.com https://*.googleusercontent.com https://*.trycloudflare.com ws: wss:`
+    : `'self' ${apiOrigin} https://accounts.google.com https://*.googleusercontent.com`
   const imgSrc = dev
     ? `'self' data: blob: http://127.0.0.1:8000 http://localhost:8000 ${apiOrigin} https://*.trycloudflare.com`
     : `'self' data: blob: ${apiOrigin}`
@@ -39,7 +42,8 @@ function contentSecurityPolicy(apiOrigin, { dev }) {
     "object-src 'none'",
     "form-action 'self'",
     `script-src ${scriptSrc} https://accounts.google.com`,
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://accounts.google.com",
+    "style-src-elem 'self' 'unsafe-inline' https://accounts.google.com",
     `img-src ${imgSrc}`,
     `media-src ${mediaSrc}`,
     "font-src 'self' data:",

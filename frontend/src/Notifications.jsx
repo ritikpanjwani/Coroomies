@@ -75,8 +75,8 @@ function Notifications({ setPage }) {
             if (showLoading) setLoading(true);
             const response = await api.get("/notifications/?limit=100");
             setNotifications(response.data.notifications || []);
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Silently handle notification load error
         } finally {
             setLoading(false);
         }
@@ -95,8 +95,8 @@ function Notifications({ setPage }) {
             );
             await api.put(`/notifications/${id}/read`);
             window.dispatchEvent(new Event("coroomies:refresh-counts"));
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
+            // Fail silently on markRead network error
         }
     };
 
@@ -106,8 +106,7 @@ function Notifications({ setPage }) {
             await api.put("/notifications/read-all");
             toast.success("All notifications marked as read");
             window.dispatchEvent(new Event("coroomies:refresh-counts"));
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
             toast.error("Could not mark notifications as read");
         }
     };
@@ -118,8 +117,7 @@ function Notifications({ setPage }) {
             const res = await api.delete("/notifications/clear-all");
             toast.success(`Cleared ${res.data.deleted_count || 0} read notification(s)`);
             window.dispatchEvent(new Event("coroomies:refresh-counts"));
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
             toast.error("Could not clear read notifications");
         }
     };
@@ -131,8 +129,7 @@ function Notifications({ setPage }) {
             await api.delete(`/notifications/${id}`);
             toast.success("Notification deleted");
             window.dispatchEvent(new Event("coroomies:refresh-counts"));
-        } catch (error) {
-            console.error(error.response?.data);
+        } catch {
             toast.error("Could not delete notification");
         }
     };
