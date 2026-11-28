@@ -38,7 +38,7 @@ export default function PasswordRequirements({ password = "" }) {
             isAllMet
               ? "bg-emerald-500"
               : metCount >= 3
-              ? "bg-gradient-to-r from-brand-500 to-violet-500"
+              ? "bg-brand-600"
               : "bg-amber-400"
           }`}
           style={{ width: `${(metCount / CRITERIA.length) * 100}%` }}

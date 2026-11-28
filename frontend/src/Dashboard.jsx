@@ -13,10 +13,9 @@ const Groups = lazy(() => import("./Groups"));
 const Household = lazy(() => import("./Household"));
 const Assistant = lazy(() => import("./Assistant"));
 const Settings = lazy(() => import("./Settings"));
-const Rooms = lazy(() => import("./Rooms"));
 
 import { logout } from "./auth";
-import api, { API_BASE } from "./api";
+import api from "./api";
 import {
   LayoutDashboardIcon,
   UserRoundIcon,
@@ -25,7 +24,6 @@ import {
   MessageCircleIcon,
   ReceiptIndianRupeeIcon,
   CheckCircleIcon,
-  BuildingIcon,
   SparklesIcon,
   UserRoundPlusIcon,
   BellIcon,
@@ -41,7 +39,7 @@ import {
   ArrowRightIcon,
 } from "./components/Icons";
 import Avatar from "./components/ui/Avatar";
-import { formatRelativeTime } from "./utils/format";
+import { formatRelativeTime, resolveAvatarUrl } from "./utils/format";
 
 const NAV_GROUPS = [
   {
@@ -62,7 +60,6 @@ const NAV_GROUPS = [
     label: "Living",
     items: [
       { key: "expenses", label: "Expenses", icon: <ReceiptIndianRupeeIcon className="h-[18px] w-[18px]" /> },
-      { key: "rooms", label: "Rooms & Vacancies", icon: <BuildingIcon className="h-[18px] w-[18px]" /> },
       { key: "groups", label: "Living Groups", icon: <HouseIcon className="h-[18px] w-[18px]" /> },
       { key: "household", label: "Household", icon: <CheckCircleIcon className="h-[18px] w-[18px]" /> },
       { key: "assistant", label: "Conflict Assistant", icon: <SparklesIcon className="h-[18px] w-[18px]" /> },
@@ -75,7 +72,7 @@ const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 function LogoMark({ className = "" }) {
   return (
     <div
-      className={`flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-violet-500 text-white shadow-glow ${className}`}
+      className={`flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-xs ${className}`}
     >
       <HouseIcon className="h-5 w-5" />
     </div>
@@ -177,6 +174,11 @@ function Dashboard() {
         }
         return "home";
     });
+    const [visitedPages, setVisitedPages] = useState(() => new Set([page]));
+    if (!visitedPages.has(page)) {
+        setVisitedPages((prev) => new Set(prev).add(page));
+    }
+
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [moreOpen, setMoreOpen] = useState(false);
     const [collapsed, setCollapsed] = useState(
@@ -240,12 +242,12 @@ function Dashboard() {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         loadCounts();
 
-        // Active visibility polling with clean timer
+        // Active visibility polling with clean timer (30s interval; instant on focus/events)
         const interval = setInterval(() => {
             if (document.visibilityState === "visible") {
                 loadCounts();
             }
-        }, 6000);
+        }, 30000);
 
         const onVisibilityChange = () => {
             if (document.visibilityState === "visible") {
@@ -314,6 +316,7 @@ function Dashboard() {
 
     const navigate = (key) => {
         setPage(key);
+        setVisitedPages((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
         setSidebarOpen(false);
         setMoreOpen(false);
         setNotifOpen(false);
@@ -435,7 +438,7 @@ function Dashboard() {
 
     const navActiveBar = (active) =>
         active ? (
-            <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-brand-500 to-violet-500" />
+            <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-brand-600" />
         ) : null;
 
     const sidebarContent = (
@@ -716,7 +719,7 @@ function Dashboard() {
                             >
                                 <Avatar
                                     name={userName}
-                                    src={localStorage.getItem("user_avatar") ? `${API_BASE}${localStorage.getItem("user_avatar")}` : ""}
+                                    src={resolveAvatarUrl(localStorage.getItem("user_avatar"))}
                                     size="sm"
                                 />
                             </button>
@@ -763,7 +766,7 @@ function Dashboard() {
                 </header>
 
                 <main className="w-full flex-1 max-w-6xl mx-auto px-4 py-4 pb-36 sm:px-6 sm:py-6 sm:pb-24 lg:px-8 lg:py-8 lg:pb-8">
-                    <div key={page} className="w-full min-w-0 animate-fade-in">
+                    <div className="w-full min-w-0">
                         <ErrorBoundary>
                             <Suspense
                                 fallback={
@@ -772,17 +775,56 @@ function Dashboard() {
                                     </div>
                                 }
                             >
-                                {page === "home" && <Home setPage={navigate} />}
-                                {page === "profile" && <Profile setPage={navigate} />}
-                                {page === "matches" && <Matches setPage={navigate} />}
-                                {page === "expenses" && <Expenses />}
-                                {page === "groups" && <Groups />}
-                                {page === "household" && <Household />}
-                                {page === "assistant" && <Assistant />}
-                                {page === "chat" && <Chat />}
-                                {page === "notifications" && <Notifications setPage={navigate} />}
-                                {page === "settings" && <Settings />}
-                                {page === "rooms" && <Rooms />}
+                                {visitedPages.has("home") && (
+                                    <div style={{ display: page === "home" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Home setPage={navigate} />
+                                    </div>
+                                )}
+                                {visitedPages.has("profile") && (
+                                    <div style={{ display: page === "profile" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Profile setPage={navigate} />
+                                    </div>
+                                )}
+                                {visitedPages.has("matches") && (
+                                    <div style={{ display: page === "matches" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Matches setPage={navigate} />
+                                    </div>
+                                )}
+                                {visitedPages.has("expenses") && (
+                                    <div style={{ display: page === "expenses" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Expenses />
+                                    </div>
+                                )}
+                                {visitedPages.has("groups") && (
+                                    <div style={{ display: page === "groups" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Groups />
+                                    </div>
+                                )}
+                                {visitedPages.has("household") && (
+                                    <div style={{ display: page === "household" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Household />
+                                    </div>
+                                )}
+                                {visitedPages.has("assistant") && (
+                                    <div style={{ display: page === "assistant" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Assistant />
+                                    </div>
+                                )}
+                                {visitedPages.has("chat") && (
+                                    <div style={{ display: page === "chat" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Chat />
+                                    </div>
+                                )}
+                                {visitedPages.has("notifications") && (
+                                    <div style={{ display: page === "notifications" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Notifications setPage={navigate} />
+                                    </div>
+                                )}
+                                {visitedPages.has("settings") && (
+                                    <div style={{ display: page === "settings" ? "block" : "none" }} className="w-full min-w-0">
+                                        <Settings />
+                                    </div>
+                                )}
                             </Suspense>
                         </ErrorBoundary>
                     </div>
@@ -827,7 +869,7 @@ function Dashboard() {
                                 </span>
                                 <span>{label}</span>
                                 {active && (
-                                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-1 w-8 rounded-full bg-gradient-to-r from-brand-600 to-violet-500" />
+                                    <span className="absolute top-0 left-1/2 -translate-x-1/2 h-1 w-8 rounded-full bg-brand-600" />
                                 )}
                             </button>
                         );
@@ -836,7 +878,7 @@ function Dashboard() {
                         onClick={() => setMoreOpen(true)}
                         aria-expanded={moreOpen}
                         className={`relative flex min-h-[48px] min-w-[56px] flex-1 flex-col items-center justify-center gap-1 py-1.5 text-[11px] font-medium transition-colors ${
-                            ["groups", "household", "assistant", "profile", "settings", "rooms"].includes(page)
+                            ["groups", "household", "assistant", "profile", "settings"].includes(page)
                                 ? "text-brand-600 dark:text-brand-400 font-semibold"
                                 : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
                         }`}
@@ -845,8 +887,8 @@ function Dashboard() {
                             <MenuIcon className="h-5 w-5" />
                         </span>
                         <span>More</span>
-                        {["groups", "household", "assistant", "profile", "settings", "rooms"].includes(page) && (
-                            <span className="absolute top-0 left-1/2 -translate-x-1/2 h-1 w-8 rounded-full bg-gradient-to-r from-brand-600 to-violet-500" />
+                        {["groups", "household", "assistant", "profile", "settings"].includes(page) && (
+                            <span className="absolute top-0 left-1/2 -translate-x-1/2 h-1 w-8 rounded-full bg-brand-600" />
                         )}
                     </button>
                 </div>
@@ -892,9 +934,9 @@ function Dashboard() {
                                     localStorage.setItem("coroomies_open_join", "1");
                                     navigate("groups");
                                 }}
-                                className="flex w-full items-center gap-3.5 rounded-2xl p-3 bg-gradient-to-r from-brand-50 to-violet-50 dark:from-brand-950/70 dark:to-violet-950/50 border border-brand-200/90 dark:border-brand-800/70 text-left transition-all hover:scale-[1.01] active:scale-[0.99] shadow-sm mb-3"
+                                className="flex w-full items-center gap-3.5 rounded-2xl p-3 bg-brand-50/60 dark:bg-brand-950/40 border border-brand-200/90 dark:border-brand-800/70 text-left transition-all hover:scale-[1.01] active:scale-[0.99] shadow-xs mb-3 cursor-pointer"
                             >
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-600 to-violet-600 text-white shadow-sm">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white shadow-xs">
                                     <HouseIcon className="h-5 w-5" />
                                 </div>
                                 <div className="min-w-0 flex-1">
@@ -915,7 +957,6 @@ function Dashboard() {
                                 { key: "assistant", label: "Conflict Assistant", desc: "AI mediation & fair dispute resolution", icon: SparklesIcon, color: "bg-violet-50 text-violet-600 dark:bg-violet-950/60 dark:text-violet-300" },
                                 { key: "profile", label: "My Profile", desc: "Lifestyle preferences, budget, habits & bio", icon: UserRoundIcon, color: "bg-sky-50 text-sky-600 dark:bg-sky-950/60 dark:text-sky-300" },
                                 { key: "settings", label: "Settings", desc: "Account security, password & UPI ID", icon: SettingsIcon, color: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" },
-                                { key: "rooms", label: "Rooms & Vacancies", desc: "Publish listings and apply to living groups", icon: BuildingIcon, color: "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-300" },
                             ].map(({ key, label, desc, icon: ItemIcon, color }) => {
                                 const active = page === key;
                                 return (

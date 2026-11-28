@@ -1,3 +1,4 @@
+import os
 import hashlib
 import logging
 import secrets
@@ -5,20 +6,26 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from psycopg.errors import UndefinedColumn
 
-from app.auth import create_access_token, get_current_user_id
-from app.config import DEV_MODE
+from app.auth import create_access_token, get_current_user_id, _verify_token_and_get_user_id
+from app.config import DEV_MODE, IS_PRODUCTION
 from app.database import get_connection
 from app.google_auth import verify_google_id_token
 from app.logging_utils import log_exception
-from app.emailer import send_otp_email_background
+from app.emailer import (
+    send_otp_email_background,
+    send_login_otp_email_background,
+    smtp_configured,
+)
 from app.rate_limit import enforce, get_client_ip
 from app.schemas import (
     ForgotPasswordRequest,
     GoogleAuthRequest,
     GoogleLinkRequest,
     ResetPasswordRequest,
+    SendOtpRequest,
     UserCreate,
     UserLogin,
+    VerifyLoginOtpRequest,
     VerifyOtpRequest,
 )
 from app.security import hash_password, verify_password, hash_otp, verify_otp_hash
@@ -51,11 +58,12 @@ def _find_user_by_identifier(cursor, identifier: str):
     return cursor.fetchone()
 
 
-def _google_user_response(row):
+def _auth_user_response(row, is_new_user: bool = False):
     return {
         "access_token": create_access_token(row[0], row[6]),
         "token_type": "bearer",
         "profile_complete": bool(row[8]),
+        "is_new_user": is_new_user,
         "user": {
             "id": row[0],
             "name": row[1],
@@ -67,7 +75,11 @@ def _google_user_response(row):
     }
 
 
-def _load_google_user(cursor, user_id: int):
+def _google_user_response(row, is_new_user: bool = False):
+    return _auth_user_response(row, is_new_user=is_new_user)
+
+
+def _load_user_full(cursor, user_id: int):
     cursor.execute(
         """
         SELECT u.id, u.name, u.email, u.password_hash, u.username, u.avatar_url,
@@ -81,21 +93,54 @@ def _load_google_user(cursor, user_id: int):
     return cursor.fetchone()
 
 
-def _available_google_username(cursor, email: str) -> str:
+def _load_google_user(cursor, user_id: int):
+    return _load_user_full(cursor, user_id)
+
+
+def _available_username(cursor, email: str, base_hint: str | None = None) -> str:
+    seed = base_hint or email.split("@", 1)[0]
     base = "".join(
-        char for char in email.split("@", 1)[0].lower()
+        char for char in seed.lower()
         if char.isalnum() or char == "_"
     )
-    base = (base or "google_user")[:24]
+    base = (base or "user")[:24]
+    if len(base) < 3:
+        base = f"{base}_user"[:24]
     for suffix in range(100):
         username = base if suffix == 0 else f"{base[:20]}_{suffix}"
         cursor.execute("SELECT 1 FROM users WHERE username = %s", (username,))
         if not cursor.fetchone():
             return username
-    return f"google_{secrets.token_hex(6)}"
+    return f"user_{secrets.token_hex(6)}"
 
 
-def _authenticate_google(body, request: Request, link_password: str | None = None):
+def _available_google_username(cursor, email: str) -> str:
+    return _available_username(cursor, email)
+
+
+def mask_email(email: str) -> str:
+    """Mask email for privacy and secure display (e.g. s***h@example.com)."""
+    if not email or "@" not in email:
+        return "***@***"
+    local, domain = email.strip().split("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "*"
+    else:
+        masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
+    domain_parts = domain.split(".")
+    if len(domain_parts) >= 2:
+        domain_name = domain_parts[0]
+        masked_domain = (domain_name[0] + "*" * (len(domain_name) - 1)) if len(domain_name) > 1 else domain_name
+        return f"{masked_local}@{masked_domain}.{'.'.join(domain_parts[1:])}"
+    return f"{masked_local}@{domain}"
+
+
+def _authenticate_google(
+    body,
+    request: Request,
+    link_password: str | None = None,
+    link_otp: str | None = None,
+):
     enforce(f"google-login:ip:{get_client_ip(request)}", limit=10, window=60)
     identity = verify_google_id_token(body.credential)
     connection = get_connection()
@@ -115,7 +160,7 @@ def _authenticate_google(body, request: Request, link_password: str | None = Non
             if google_user:
                 row = _load_google_user(cursor, google_user[0])
                 connection.commit()
-                return _google_user_response(row)
+                return _google_user_response(row, is_new_user=False)
 
             cursor.execute(
                 """
@@ -128,22 +173,66 @@ def _authenticate_google(body, request: Request, link_password: str | None = Non
             )
             email_user = cursor.fetchone()
             if email_user:
-                if link_password is None:
+                if link_password is None and link_otp is None:
                     raise HTTPException(
                         status_code=409,
                         detail={
                             "code": "account_link_required",
+                            "email": identity["email"],
+                            "masked_email": mask_email(identity["email"]),
                             "message": (
-                                "An account already uses this email. Enter its password "
-                                "to securely link Google."
+                                f"An account already uses this email ({mask_email(identity['email'])}). "
+                                "Enter its password or a verification code to securely link Google."
                             ),
                         },
                     )
-                if not verify_password(link_password, email_user[1]):
-                    raise HTTPException(
-                        status_code=401,
-                        detail="The existing account password is incorrect.",
+                if link_password is not None:
+                    if not verify_password(link_password, email_user[1]):
+                        raise HTTPException(
+                            status_code=401,
+                            detail="The existing account password is incorrect.",
+                        )
+                elif link_otp is not None:
+                    cursor.execute(
+                        """
+                        SELECT id, expires_at, otp_hash, failed_attempts
+                        FROM auth_otps
+                        WHERE lower(email) = %s AND used = FALSE AND purpose IN ('login', 'google_link')
+                        ORDER BY id DESC LIMIT 1
+                        FOR UPDATE
+                        """,
+                        (identity["email"].lower(),),
                     )
+                    otp_row = cursor.fetchone()
+                    if (
+                        not otp_row
+                        or datetime.now(timezone.utc) > otp_row[1]
+                        or otp_row[3] >= 5
+                        or not verify_otp_hash(link_otp, otp_row[2])
+                    ):
+                        if otp_row:
+                            new_attempts = otp_row[3] + 1
+                            should_invalidate = new_attempts >= 5
+                            cursor.execute(
+                                """
+                                UPDATE auth_otps
+                                SET failed_attempts = %s, used = %s
+                                WHERE id = %s
+                                """,
+                                (new_attempts, should_invalidate, otp_row[0]),
+                            )
+                            connection.commit()
+                            if should_invalidate:
+                                raise HTTPException(
+                                    status_code=401,
+                                    detail="Too many incorrect attempts. Please request a new verification code.",
+                                )
+                        raise HTTPException(
+                            status_code=401,
+                            detail="Invalid or expired verification code.",
+                        )
+                    cursor.execute("UPDATE auth_otps SET used = TRUE WHERE id = %s", (otp_row[0],))
+
                 cursor.execute(
                     """
                     UPDATE users
@@ -159,9 +248,9 @@ def _authenticate_google(body, request: Request, link_password: str | None = Non
                     )
                 row = _load_google_user(cursor, email_user[0])
                 connection.commit()
-                return _google_user_response(row)
+                return _google_user_response(row, is_new_user=False)
 
-            username = _available_google_username(cursor, identity["email"])
+            username = _available_username(cursor, identity["email"])
             cursor.execute(
                 """
                 INSERT INTO users
@@ -183,7 +272,7 @@ def _authenticate_google(body, request: Request, link_password: str | None = Non
             new_user_id = cursor.fetchone()[0]
             row = _load_google_user(cursor, new_user_id)
             connection.commit()
-            return _google_user_response(row)
+            return _google_user_response(row, is_new_user=True)
     except HTTPException:
         connection.rollback()
         raise
@@ -210,7 +299,353 @@ def google_login(body: GoogleAuthRequest, request: Request):
 
 @router.post("/google/link")
 def google_link(body: GoogleLinkRequest, request: Request):
-    return _authenticate_google(body, request, link_password=body.password)
+    return _authenticate_google(body, request, link_password=body.password, link_otp=body.otp)
+
+
+@router.post("/google/link-otp/send")
+def send_google_link_otp(
+    body: GoogleAuthRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """Generate and dispatch an OTP for account linking, strictly deriving destination email from the server-verified Google identity."""
+    if IS_PRODUCTION and not smtp_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Email delivery service is currently unavailable. Please link your account using your password.",
+        )
+    enforce(f"google-link-otp:ip:{get_client_ip(request)}", limit=8, window=60)
+    identity = verify_google_id_token(body.credential)
+    email_lower = identity["email"].strip().lower()
+    enforce(f"google-link-otp:email:{email_lower}", limit=4, window=300)
+
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM users WHERE lower(email) = %s LIMIT 1", (email_lower,))
+            user_row = cursor.fetchone()
+            if not user_row:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No existing account found for this Google email.",
+                )
+
+            user_id = user_row[0]
+
+            # Invalidate any prior unconsumed link or login OTPs for this email
+            cursor.execute(
+                """
+                UPDATE auth_otps
+                SET used = TRUE
+                WHERE lower(email) = %s AND used = FALSE AND purpose IN ('login', 'google_link')
+                """,
+                (email_lower,),
+            )
+
+            otp = f"{secrets.randbelow(1000000):06d}"
+            otp_hash_val = hash_otp(otp)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)
+
+            cursor.execute(
+                """
+                INSERT INTO auth_otps (email, otp_hash, purpose, user_id, expires_at, failed_attempts)
+                VALUES (%s, %s, 'google_link', %s, %s, 0)
+                """,
+                (email_lower, otp_hash_val, user_id, expires_at),
+            )
+            connection.commit()
+
+        background_tasks.add_task(
+            send_login_otp_email_background,
+            email_lower,
+            otp,
+            OTP_TTL_MINUTES,
+            user_id=user_id,
+        )
+
+        response_data = {
+            "message": f"Verification code sent to {mask_email(email_lower)}.",
+            "email": email_lower,
+            "masked_email": mask_email(email_lower),
+            "expires_in_minutes": OTP_TTL_MINUTES,
+        }
+
+        return response_data
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception as exc:
+        connection.rollback()
+        log_exception(logger, "Failed to send Google link OTP", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send verification code. Please try again.",
+        )
+    finally:
+        connection.close()
+
+
+@router.get("/email/status", include_in_schema=not IS_PRODUCTION)
+def email_status(request: Request):
+    """Diagnostic check for SMTP connectivity and authentication status.
+
+    Restricted to local development or authorized administrators.
+    """
+    if IS_PRODUCTION:
+        auth_header = request.headers.get("Authorization")
+        is_admin = False
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            try:
+                user_id = _verify_token_and_get_user_id(token)
+                admin_emails = {
+                    e.strip().lower()
+                    for e in (os.getenv("ADMIN_EMAILS") or os.getenv("ADMIN_EMAIL") or "").split(",")
+                    if e.strip()
+                }
+                smtp_user = (os.getenv("SMTP_USER") or "").strip().lower()
+                if smtp_user:
+                    admin_emails.add(smtp_user)
+                connection = get_connection()
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT lower(email) FROM users WHERE id = %s", (user_id,))
+                        row = cursor.fetchone()
+                        if row and row[0] in admin_emails:
+                            is_admin = True
+                finally:
+                    connection.close()
+            except Exception:
+                is_admin = False
+        if not is_admin:
+            raise HTTPException(status_code=404, detail="Not Found")
+
+    from app.emailer import audit_smtp_connection
+    res = audit_smtp_connection()
+    if IS_PRODUCTION:
+        return {
+            "configured": res.get("configured", False),
+            "connected": res.get("connected", False),
+            "authenticated": res.get("authenticated", False),
+            "error": res.get("error") if not res.get("authenticated") else None,
+        }
+    return res
+
+
+
+@router.post("/otp/send")
+def send_login_otp(
+    body: SendOtpRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    if IS_PRODUCTION and not smtp_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Email delivery service is currently unavailable. Please sign in with Google or your password.",
+        )
+    enforce(f"otp-send:ip:{get_client_ip(request)}", limit=8, window=60)
+    email_lower = body.email.strip().lower()
+    enforce(f"otp-send:email:{email_lower}", limit=4, window=300)
+
+    connection = get_connection()
+    user_id = None
+    try:
+        with connection.cursor() as cursor:
+            # Invalidate previous unconsumed login/link OTPs for this email
+            cursor.execute(
+                """
+                UPDATE auth_otps
+                SET used = TRUE
+                WHERE lower(email) = %s AND used = FALSE AND purpose IN ('login', 'google_link')
+                """,
+                (email_lower,),
+            )
+
+            otp = f"{secrets.randbelow(1000000):06d}"
+            otp_hash_val = hash_otp(otp)
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=OTP_TTL_MINUTES)
+
+            # Check if an account already exists for this email
+            cursor.execute(
+                "SELECT id FROM users WHERE lower(email) = %s LIMIT 1",
+                (email_lower,),
+            )
+            user_row = cursor.fetchone()
+            user_id = user_row[0] if user_row else None
+
+            cursor.execute(
+                """
+                INSERT INTO auth_otps (email, otp_hash, purpose, user_id, expires_at, failed_attempts)
+                VALUES (%s, %s, 'login', %s, %s, 0)
+                """,
+                (email_lower, otp_hash_val, user_id, expires_at),
+            )
+            connection.commit()
+
+        # Dispatch email asynchronously in background
+        background_tasks.add_task(
+            send_login_otp_email_background,
+            email_lower,
+            otp,
+            OTP_TTL_MINUTES,
+            user_id=user_id,
+        )
+
+        response_data = {
+            "message": f"Verification code sent to {email_lower}.",
+            "expires_in_minutes": OTP_TTL_MINUTES,
+        }
+
+        return response_data
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception as exc:
+        connection.rollback()
+        log_exception(logger, "Failed to send login OTP", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send verification code. Please try again.",
+        )
+    finally:
+        connection.close()
+
+
+@router.post("/otp/verify")
+def verify_login_otp(body: VerifyLoginOtpRequest, request: Request):
+    enforce(f"otp-verify:ip:{get_client_ip(request)}", limit=15, window=60)
+    email_lower = body.email.strip().lower()
+    enforce(f"otp-verify:email:{email_lower}", limit=5, window=300)
+
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            # Atomic row lock to serialize concurrent verification attempts on this email's active OTP
+            cursor.execute(
+                """
+                SELECT id, expires_at, otp_hash, failed_attempts, user_id
+                FROM auth_otps
+                WHERE lower(email) = %s AND used = FALSE AND purpose IN ('login', 'google_link')
+                ORDER BY id DESC LIMIT 1
+                FOR UPDATE
+                """,
+                (email_lower,),
+            )
+            token_row = cursor.fetchone()
+
+            if not token_row:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid or expired verification code.",
+                )
+
+            token_id, expires_at, stored_otp_hash, failed_attempts, _ = token_row
+
+            if datetime.now(timezone.utc) > expires_at or failed_attempts >= 5:
+                if failed_attempts >= 5:
+                    cursor.execute(
+                        "UPDATE auth_otps SET used = TRUE WHERE id = %s",
+                        (token_id,),
+                    )
+                    connection.commit()
+                raise HTTPException(
+                    status_code=400,
+                    detail="Verification code has expired or been invalidated. Please request a new one.",
+                )
+
+            if not verify_otp_hash(body.otp, stored_otp_hash):
+                new_attempts = failed_attempts + 1
+                should_invalidate = new_attempts >= 5
+                cursor.execute(
+                    """
+                    UPDATE auth_otps
+                    SET failed_attempts = %s, used = %s
+                    WHERE id = %s
+                    """,
+                    (new_attempts, should_invalidate, token_id),
+                )
+                connection.commit()
+                if should_invalidate:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Too many incorrect attempts. This code has been invalidated. Please request a new one.",
+                    )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid or expired verification code.",
+                )
+
+            # Mark token used
+            cursor.execute(
+                "UPDATE auth_otps SET used = TRUE WHERE id = %s AND used = FALSE",
+                (token_id,),
+            )
+            if cursor.rowcount == 0:
+                connection.rollback()
+                raise HTTPException(
+                    status_code=400,
+                    detail="Verification code has already been used.",
+                )
+
+            # Find existing user by lower(email)
+            cursor.execute(
+                """
+                SELECT u.id, u.name, u.email, u.password_hash, u.username, u.avatar_url,
+                       u.token_version, u.upi_id,
+                       EXISTS (SELECT 1 FROM student_profiles p WHERE p.user_id = u.id)
+                FROM users u
+                WHERE lower(u.email) = %s
+                LIMIT 1
+                """,
+                (email_lower,),
+            )
+            user_row = cursor.fetchone()
+
+            if user_row:
+                # Existing user! All profiles, matches, chats, groups, and expenses preserved
+                connection.commit()
+                return _auth_user_response(user_row, is_new_user=False)
+
+            # New user: Auto-provision account
+            generated_username = _available_username(cursor, email_lower)
+            name_seed = email_lower.split("@", 1)[0].replace(".", " ").replace("_", " ").replace("-", " ").title().strip()
+            display_name = (name_seed or "CoRoomies User")[:100]
+            placeholder_pw_hash = hash_password(secrets.token_urlsafe(32))
+            now = datetime.now(timezone.utc)
+
+            cursor.execute(
+                """
+                INSERT INTO users (name, email, password_hash, username, username_changed_at)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    display_name,
+                    email_lower,
+                    placeholder_pw_hash,
+                    generated_username,
+                    now,
+                ),
+            )
+            new_user_id = cursor.fetchone()[0]
+            new_row = _load_user_full(cursor, new_user_id)
+            connection.commit()
+            return _auth_user_response(new_row, is_new_user=True)
+
+    except HTTPException:
+        connection.rollback()
+        raise
+    except Exception as exc:
+        connection.rollback()
+        log_exception(logger, "OTP verification failed", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to verify code. Please try again.",
+        )
+    finally:
+        connection.close()
+
 
 
 @router.get("/google/config")
@@ -376,6 +811,11 @@ def forgot_password(
     request: Request,
     background_tasks: BackgroundTasks,
 ):
+    if IS_PRODUCTION and not smtp_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Password recovery via email is currently unavailable. Please sign in using Google.",
+        )
     enforce(f"forgot:ip:{get_client_ip(request)}", limit=6, window=60)
     identifier = (body.identifier or "").strip().lower()
     if identifier:

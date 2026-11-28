@@ -34,3 +34,12 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+# Local development and generated output
+.venv/
+node_modules/
+logs/
+*.log
+*.tmp
+*.temp
+.pytest_cache/
+.ruff_cache/

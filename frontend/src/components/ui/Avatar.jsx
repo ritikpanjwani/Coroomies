@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { resolveAvatarUrl } from "../../utils/format";
 
 const PALETTE = [
   "bg-brand-500",
@@ -27,7 +28,7 @@ export default function Avatar({
   size = "md",
   className = "",
 }) {
-  const [imgFailed, setImgFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState(null);
 
   const sizes = {
     xs: "h-6 w-6 text-[11px]",
@@ -44,13 +45,16 @@ export default function Avatar({
     .map((part) => part.charAt(0).toUpperCase())
     .join("");
 
-  if (src && !imgFailed) {
+  const resolvedSrc = resolveAvatarUrl(src);
+  const imgFailed = Boolean(resolvedSrc && failedSrc === resolvedSrc);
+
+  if (resolvedSrc && !imgFailed) {
     return (
       <img
-        key={src}
-        src={src}
+        key={resolvedSrc}
+        src={resolvedSrc}
         alt={name}
-        onError={() => setImgFailed(true)}
+        onError={() => setFailedSrc(resolvedSrc)}
         className={`${sizes[size] || sizes.md} ${
           size === "xl" ? "rounded-2xl" : "rounded-full"
         } shrink-0 object-cover select-none ring-1 ring-inset ring-black/5 dark:ring-white/10 ${className}`}

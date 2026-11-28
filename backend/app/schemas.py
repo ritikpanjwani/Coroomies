@@ -108,7 +108,23 @@ class GoogleAuthRequest(BaseModel):
 
 
 class GoogleLinkRequest(GoogleAuthRequest):
-    password: str = Field(min_length=1, max_length=128)
+    password: str | None = Field(default=None, min_length=1, max_length=128)
+    otp: str | None = Field(default=None, min_length=6, max_length=6)
+
+    @model_validator(mode="after")
+    def validate_password_or_otp(self):
+        if not self.password and not self.otp:
+            raise ValueError("Either password or OTP must be provided to link Google account")
+        return self
+
+
+class SendOtpRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyLoginOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(min_length=6, max_length=6)
 
 
 class VerifyOtpRequest(BaseModel):
@@ -231,6 +247,17 @@ class DrinkingPreference(str, Enum):
     regular_drinker = "regular_drinker"
 
 
+class HousingIntentEnum(str, Enum):
+    have_flat = "have_flat"          # Have a flat and need a flatmate
+    need_room = "need_room"          # Need a room
+    find_together = "find_together"  # Find a flat together
+
+
+class ProfileVisibilityEnum(str, Enum):
+    public = "public"
+    hidden = "hidden"
+
+
 class ProfileCreate(BaseModel):
     sleep_schedule: SleepSchedule | None = None
     cleanliness: int | None = None
@@ -259,6 +286,14 @@ class ProfileCreate(BaseModel):
     drinking_preference: DrinkingPreference | None = None
     preferred_age_min: int | None = None
     preferred_age_max: int | None = None
+
+    # Phase 3 Fields
+    housing_intent: HousingIntentEnum | None = None
+    move_in_date: str | None = None
+    preferred_localities: list[str] | None = None
+    deal_breakers: list[str] | None = None
+    bio: str | None = None
+    profile_visibility: ProfileVisibilityEnum | None = None
 
     @field_validator("dob", mode="before")
     @classmethod
@@ -311,6 +346,38 @@ class ProfileCreate(BaseModel):
         if len(cleaned) > 150:
             raise ValueError("Value must be 150 characters or fewer")
         return cleaned
+
+    @field_validator("bio")
+    @classmethod
+    def validate_bio(cls, v):
+        if v is None or v == "":
+            return None
+        cleaned = v.strip()
+        if len(cleaned) > 280:
+            raise ValueError("Bio must be 280 characters or fewer")
+        return cleaned
+
+    @field_validator("move_in_date")
+    @classmethod
+    def validate_move_in_date(cls, v):
+        if v is None or v == "":
+            return None
+        cleaned = str(v).strip()
+        if len(cleaned) > 50:
+            raise ValueError("Move-in date must be 50 characters or fewer")
+        return cleaned
+
+    @field_validator("preferred_localities", "deal_breakers", mode="before")
+    @classmethod
+    def validate_string_list(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            v = [item.strip() for item in v.split(",") if item.strip()]
+        if isinstance(v, list):
+            cleaned = [str(item).strip() for item in v if str(item).strip()][:15]
+            return cleaned
+        return None
 
     @field_validator("budget_min", "budget_max", "preferred_age_min", "preferred_age_max", mode="before")
     @classmethod

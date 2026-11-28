@@ -73,12 +73,12 @@ function BudgetCard({ budget, onSetBudget, saving }) {
     const hasReminder = budget.budget_reminder != null;
     const barColor =
         !hasBudget
-            ? "bg-slate-200"
+            ? "bg-slate-200 dark:bg-slate-700"
             : percent > 100
             ? "bg-rose-500"
             : percent >= 80
             ? "bg-amber-400"
-            : "bg-gradient-to-r from-brand-600 to-violet-500";
+            : "bg-brand-600";
 
     const saveBudget = async () => {
         const num = Number(value);
@@ -258,8 +258,8 @@ function BudgetCard({ budget, onSetBudget, saving }) {
                                     <p
                                         className={`text-sm font-semibold ${
                                             percent > 100
-                                                ? "text-rose-600"
-                                                : "text-slate-500 dark:text-slate-500"
+                                                ? "text-rose-600 dark:text-rose-400"
+                                                : "text-slate-600 dark:text-slate-400"
                                         }`}
                                     >
                                         {percent}%
@@ -271,7 +271,7 @@ function BudgetCard({ budget, onSetBudget, saving }) {
                                         style={{ width: `${Math.min(percent, 100)}%` }}
                                     />
                                 </div>
-                                <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-500">
+                                <p className="mt-2 text-xs font-medium text-slate-500 dark:text-slate-400">
                                     {budget.remaining != null && budget.remaining >= 0
                                         ? `${formatCurrency(budget.remaining)} left this month`
                                         : `${formatCurrency(
@@ -792,20 +792,20 @@ function PersonalExpenses({
             {
                 label: `Spent · ${formatMonth(categoryTotals.month)}`,
                 value: formatCurrency(categoryTotals.total),
-                icon: <WalletIcon className="h-4.5 w-4.5" />,
-                accent: "from-amber-500 to-orange-500",
+                icon: <WalletIcon className="h-5 w-5" />,
+                iconClass: "bg-brand-50 text-brand-600 dark:bg-brand-950/50 dark:text-brand-400 border border-brand-200/60 dark:border-brand-800/60",
             },
             {
                 label: "Entries shown",
                 value: expenses.length,
-                icon: <ReceiptIndianRupeeIcon className="h-4.5 w-4.5" />,
-                accent: "from-brand-600 to-violet-500",
+                icon: <ReceiptIndianRupeeIcon className="h-5 w-5" />,
+                iconClass: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60",
             },
             {
                 label: "Top category",
                 value: topCategory || "—",
-                icon: <TrendUpIcon className="h-4.5 w-4.5" />,
-                accent: "from-sky-500 to-blue-500",
+                icon: <TrendUpIcon className="h-5 w-5" />,
+                iconClass: "bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-400 border border-sky-200/60 dark:border-sky-800/60",
             },
         ];
 
@@ -816,7 +816,7 @@ function PersonalExpenses({
                     {stats.map((stat) => (
                         <Card key={stat.label} className="flex items-center gap-4 p-4">
                             <div
-                                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${stat.accent} text-white shadow-sm`}
+                                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${stat.iconClass}`}
                             >
                                 {stat.icon}
                             </div>
@@ -824,7 +824,7 @@ function PersonalExpenses({
                                 <p className="truncate text-lg font-bold text-slate-900 dark:text-slate-100">
                                     {stat.value}
                                 </p>
-                                <p className="text-xs font-medium text-slate-500 dark:text-slate-500">
+                                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                                     {stat.label}
                                 </p>
                             </div>
@@ -1171,7 +1171,7 @@ function Expenses() {
             />
 
             {/* Tabs */}
-            <div className="mb-6 flex gap-1.5 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-sm">
+            <div className="mb-6 flex gap-1 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800/80 p-1 shadow-xs">
                 {[
                     { key: "overview", label: "Overview", icon: <TrendUpIcon className="mr-1.5 inline h-4 w-4" /> },
                     { key: "history", label: "History", icon: <ReceiptIndianRupeeIcon className="mr-1.5 inline h-4 w-4" /> },
@@ -1179,10 +1179,10 @@ function Expenses() {
                 ].map(({ key, label, icon }) => (
                     <button
                         key={key}
-                        className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3.5 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-4 sm:text-sm ${
+                        className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3.5 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-4 sm:text-sm cursor-pointer ${
                             tab === key
-                                ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                                : "text-slate-500 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                                ? "bg-brand-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                         }`}
                         onClick={() => setTab(key)}
                     >

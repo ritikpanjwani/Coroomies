@@ -6,18 +6,18 @@
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
 
-  /* ── Brand: indigo/violet primary accent ───────────────────────── */
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #302b7d;
-  --color-brand-950: #1e1b4b;
+  /* ── Brand: violet primary accent (#6C47FF) ───────────────────────── */
+  --color-brand-50: #f4f2ff;
+  --color-brand-100: #eae6ff;
+  --color-brand-200: #d6ceff;
+  --color-brand-300: #b8a8ff;
+  --color-brand-400: #9378ff;
+  --color-brand-500: #7c5cfc;
+  --color-brand-600: #6c47ff;
+  --color-brand-700: #5835e5;
+  --color-brand-800: #492abf;
+  --color-brand-900: #3c249c;
+  --color-brand-950: #231266;
 
   /* ── Accent: cyan secondary accent ─────────────────────────────── */
   --color-accent-50: #ecfeff;
@@ -32,31 +32,31 @@
   --color-accent-900: #164e63;
   --color-accent-950: #083344;
 
-  /* ── Foundation: cool navy-tinted slate ────────────────────────── */
-  --color-slate-50: #f7f8fb;
-  --color-slate-100: #eef1f6;
-  --color-slate-200: #e2e6ee;
-  --color-slate-300: #cbd3e0;
-  --color-slate-400: #9aa5ba;
-  --color-slate-500: #6e7a90;
-  --color-slate-600: #4f5b73;
-  --color-slate-700: #3a4459;
-  --color-slate-800: #242c42;
-  --color-slate-900: #151b2e;
-  --color-slate-950: #0c101d;
+  /* ── Foundation: Linear-style clean slate ──────────────────────── */
+  --color-slate-50: #f8f9fc;
+  --color-slate-100: #f1f4f9;
+  --color-slate-200: #e2e8f0;
+  --color-slate-300: #cbd5e1;
+  --color-slate-400: #94a3b8;
+  --color-slate-500: #64748b;
+  --color-slate-600: #475569;
+  --color-slate-700: #334155;
+  --color-slate-800: #1e293b;
+  --color-slate-900: #111827;
+  --color-slate-950: #0b0f19;
 
   /* ── Elevation ─────────────────────────────────────────────────── */
-  --shadow-card: 0 1px 2px rgb(12 16 29 / 0.05), 0 1px 3px rgb(12 16 29 / 0.04);
-  --shadow-card-hover: 0 2px 4px rgb(12 16 29 / 0.06), 0 12px 28px -12px rgb(12 16 29 / 0.18);
-  --shadow-popup: 0 4px 12px rgb(12 16 29 / 0.08), 0 20px 44px -18px rgb(12 16 29 / 0.28);
-  --shadow-glow: 0 0 0 1px rgb(99 102 241 / 0.15), 0 8px 24px -8px rgb(79 70 229 / 0.35);
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.05), 0 1px 2px -1px rgb(0 0 0 / 0.05);
+  --shadow-card-hover: 0 4px 12px -2px rgb(0 0 0 / 0.08), 0 2px 6px -1px rgb(0 0 0 / 0.04);
+  --shadow-popup: 0 10px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-glow: 0 0 0 1px rgb(108 71 255 / 0.15), 0 4px 16px -4px rgb(108 71 255 / 0.3);
 
-  --animate-fade-in: fade-in 0.25s ease-out;
-  --animate-fade-in-slow: fade-in 0.5s ease-out;
-  --animate-slide-up: slide-up 0.3s ease-out;
-  --animate-slide-in-left: slide-in-left 0.25s ease-out;
-  --animate-scale-in: scale-in 0.2s ease-out;
-  --animate-toast-in: toast-in 0.3s ease-out;
+  --animate-fade-in: fade-in 0.15s ease-out;
+  --animate-fade-in-slow: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.16s ease-out;
+  --animate-slide-in-left: slide-in-left 0.16s ease-out;
+  --animate-scale-in: scale-in 0.15s ease-out;
+  --animate-toast-in: toast-in 0.2s ease-out;
   --animate-shimmer: shimmer 1.6s linear infinite;
   --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
 }

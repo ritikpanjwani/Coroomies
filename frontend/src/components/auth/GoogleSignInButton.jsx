@@ -112,7 +112,7 @@ export default function GoogleSignInButton({ onCredential, disabled = false }) {
                         ux_mode: "popup",
                         context: "signin",
                         itp_support: true,
-                        use_fedcm_for_button: false,
+                        use_fedcm_for_button: true,
                         callback: (response) => {
                             if (!response?.credential) {
                                 setError("Google sign-in was cancelled or could not complete.");
@@ -147,13 +147,13 @@ export default function GoogleSignInButton({ onCredential, disabled = false }) {
     }
 
     return (
-        <div className="mt-4">
+        <div className="w-full">
             <div
                 ref={buttonRef}
-                className={disabled ? "pointer-events-none opacity-60" : ""}
+                className={`flex justify-center w-full min-h-[44px] ${disabled ? "pointer-events-none opacity-60" : ""}`}
                 aria-label="Continue with Google"
             />
-            {error && <p className="mt-2 text-center text-xs text-rose-600">{error}</p>}
+            {error && <p className="mt-2 text-center text-xs text-rose-600 dark:text-rose-400">{error}</p>}
         </div>
     );
 }

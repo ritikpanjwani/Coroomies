@@ -1,8 +1,10 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.auth import get_current_user_id
 from app.database import get_connection
+from app.Routers.profile import compute_profile_completeness
 from app.Routers.matches import compare_preferences
 
 router = APIRouter(
@@ -19,6 +21,21 @@ class TeamUpCreate(BaseModel):
     budget_max: int | None = Field(default=None, ge=0)
 
 
+def _parse_json_list(val) -> list[str]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(x).strip() for x in val if str(x).strip()]
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            return [val.strip()] if val.strip() else []
+    return []
+
+
 def _profile_dict(cursor, user_id: int):
     cursor.execute(
         """
@@ -30,7 +47,10 @@ def _profile_dict(cursor, user_id: int):
             smoking_preference,
             food_preferences,
             social_preferences,
-            guest_preferences
+            guest_preferences,
+            housing_intent,
+            move_in_date,
+            preferred_localities
         FROM student_profiles
         WHERE user_id = %s
         """,
@@ -47,7 +67,11 @@ def _profile_dict(cursor, user_id: int):
         "smoking_preference": row[4],
         "food_preferences": row[5],
         "social_preference": row[6],
+        "social_preferences": row[6],
         "guest_preferences": row[7],
+        "housing_intent": row[8],
+        "move_in_date": row[9],
+        "preferred_localities": _parse_json_list(row[10]),
     }
 
 
@@ -62,6 +86,9 @@ def _row_to_dict(row):
         "budget_min": row[6],
         "budget_max": row[7],
         "created_at": row[8].isoformat() if row[8] else None,
+        "avatar_url": row[9] if len(row) > 9 else None,
+        "housing_intent": row[10] if len(row) > 10 else None,
+        "preferred_localities": _parse_json_list(row[11]) if len(row) > 11 else [],
     }
 
 
@@ -149,10 +176,16 @@ def list_team_ups(
                     t.area,
                     t.budget_min,
                     t.budget_max,
-                    t.created_at
+                    t.created_at,
+                    u.avatar_url,
+                    sp.housing_intent,
+                    sp.preferred_localities, sp.dob, sp.gender, sp.preferred_flatmate_gender,
+                    sp.location, sp.budget_min, sp.budget_max
                 FROM team_ups t
                 JOIN users u ON u.id = t.user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = t.user_id
                 WHERE t.user_id != %s
+                  AND sp.profile_visibility = 'public'
                 ORDER BY t.created_at DESC
                 """,
                 (user_id,),
@@ -161,6 +194,10 @@ def list_team_ups(
 
             posts = []
             for row in rows:
+                profile = dict(zip(("dob", "gender", "preferred_flatmate_gender", "location", "budget_min", "budget_max"), row[12:18]))
+                profile["housing_intent"] = row[10]
+                if not compute_profile_completeness(row[2], profile)[0]:
+                    continue
                 post = _row_to_dict(row)
                 compatibility = None
                 if my_profile is not None:
@@ -199,9 +236,14 @@ def my_team_up(
                     t.area,
                     t.budget_min,
                     t.budget_max,
-                    t.created_at
+                    t.created_at,
+                    u.avatar_url,
+                    sp.housing_intent,
+                    sp.preferred_localities, sp.dob, sp.gender, sp.preferred_flatmate_gender,
+                    sp.location, sp.budget_min, sp.budget_max
                 FROM team_ups t
                 JOIN users u ON u.id = t.user_id
+                LEFT JOIN student_profiles sp ON sp.user_id = t.user_id
                 WHERE t.user_id = %s
                 """,
                 (user_id,),

@@ -402,4 +402,43 @@ def test_requirements_contains_critical_runtime_dependencies():
         assert dep in content, f"Missing critical dependency in requirements.txt: {dep}"
 
 
+def test_canonical_profile_completeness_calculation():
+    """Verify compute_profile_completeness evaluates all 7 canonical mandatory fields accurately."""
+    from app.Routers.profile import compute_profile_completeness, MANDATORY_FIELDS
+
+    assert len(MANDATORY_FIELDS) == 7
+
+    # Case 1: Brand new user with only name
+    is_comp, pct, missing = compute_profile_completeness("Alex Rivera", {})
+    assert not is_comp
+    assert pct == 14  # 1/7 = 14%
+    assert len(missing) == 6
+    assert "Full Name" not in missing
+    assert "Date of Birth (Age)" in missing
+    assert "Housing Intent" in missing
+    assert "Location" in missing
+
+    # Case 2: Fully populated profile with canonical fields
+    full_profile = {
+        "dob": "2000-05-15",
+        "gender": "female",
+        "preferred_flatmate_gender": "female",
+        "location": "Koramangala, Bangalore",
+        "budget_min": 15000,
+        "budget_max": 25000,
+        "housing_intent": "find_together",
+        "occupation": "Software Engineer",
+        "smoking_preference": "non_smoker",
+        "drinking_preference": "social_drinker",
+        "food_preferences": "vegetarian",
+        "sleep_schedule": "early",
+        "cleanliness": 4,
+    }
+    is_comp, pct, missing = compute_profile_completeness("Alex Rivera", full_profile)
+    assert is_comp
+    assert pct == 100
+    assert len(missing) == 0
+
+
+
 

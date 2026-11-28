@@ -63,7 +63,7 @@ def send_request(
                     u.name, sp.dob, sp.gender, sp.preferred_flatmate_gender,
                     sp.location, sp.budget_min, sp.budget_max, sp.occupation,
                     sp.smoking_preference, sp.drinking_preference, sp.food_preferences,
-                    sp.sleep_schedule, sp.cleanliness, sp.preferred_age_min, sp.preferred_age_max
+                    sp.sleep_schedule, sp.cleanliness, sp.preferred_age_min, sp.preferred_age_max, sp.housing_intent
                 FROM users u
                 LEFT JOIN student_profiles sp ON sp.user_id = u.id
                 WHERE u.id = %s
@@ -90,6 +90,7 @@ def send_request(
                 "cleanliness": sender_row[12],
                 "preferred_age_min": sender_row[13],
                 "preferred_age_max": sender_row[14],
+                "housing_intent": sender_row[15],
             }
             is_comp, _, missing = compute_profile_completeness(sender_name, sender_prof)
             if not is_comp:

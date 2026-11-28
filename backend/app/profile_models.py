@@ -1,5 +1,5 @@
 from datetime import date
-from sqlalchemy import Date, ForeignKey, Integer, String
+from sqlalchemy import Date, ForeignKey, Integer, String, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models import Base
@@ -56,6 +56,14 @@ class StudentProfile(Base):
     drinking_preference: Mapped[str | None] = mapped_column(String(50), nullable=True)
     preferred_age_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
     preferred_age_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Phase 3: Housing Intent, Timeline, Localities, Deal Breakers, Bio, Visibility
+    housing_intent: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    move_in_date: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    preferred_localities: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    deal_breakers: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    bio: Mapped[str | None] = mapped_column(String(280), nullable=True)
+    profile_visibility: Mapped[str | None] = mapped_column(String(20), nullable=True, default="hidden")
 
     @property
     def age(self) -> int | None:

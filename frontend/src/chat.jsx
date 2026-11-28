@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import api, { API_BASE } from "./api";
+import api from "./api";
 import Avatar from "./components/ui/Avatar";
 import Badge from "./components/ui/Badge";
 import Button from "./components/ui/Button";
@@ -32,7 +32,7 @@ import {
     ZoomOutIcon,
     CameraIcon,
 } from "./components/Icons";
-import { formatTime, formatRelativeDay, formatRelativeTime, errorMessage } from "./utils/format";
+import { formatTime, formatRelativeDay, formatRelativeTime, errorMessage, resolveAvatarUrl } from "./utils/format";
 
 function formatFileSize(bytes) {
     if (!bytes || bytes <= 0) return "0 B";
@@ -162,6 +162,9 @@ function Chat() {
     // Scroll tracking
     const messagesRef = useRef(null);
     const isNearBottomRef = useRef(true);
+    const isUserScrolledUpRef = useRef(false);
+    const lastMessageCountRef = useRef(0);
+    const justSentMessageRef = useRef(false);
     const lastPeerIdRef = useRef(null);
     const [showScrollBottom, setShowScrollBottom] = useState(false);
     const toast = useToast();
@@ -208,8 +211,9 @@ function Chat() {
         const el = messagesRef.current;
         if (!el) return;
         const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-        const nearBottom = distanceFromBottom < 90;
+        const nearBottom = distanceFromBottom < 50;
         isNearBottomRef.current = nearBottom;
+        isUserScrolledUpRef.current = !nearBottom;
         setShowScrollBottom(!nearBottom);
     };
 
@@ -220,6 +224,7 @@ function Chat() {
                 behavior: smooth ? "smooth" : "auto",
             });
             isNearBottomRef.current = true;
+            isUserScrolledUpRef.current = false;
             setShowScrollBottom(false);
         }
     };
@@ -390,7 +395,16 @@ function Chat() {
 
             const response = await api.get(`/messages/${userId}`);
             setSelectedUser(response.data.user || { id: userId });
-            setMessages(response.data.messages || []);
+            const newMessages = response.data.messages || [];
+            setMessages((prev) => {
+                if (prev.length === newMessages.length) {
+                    if (prev.length === 0) return prev;
+                    if (prev[prev.length - 1]?.id === newMessages[newMessages.length - 1]?.id) {
+                        return prev;
+                    }
+                }
+                return newMessages;
+            });
             setFailedMessage(null);
 
             // Mark conversation read on server
@@ -447,7 +461,10 @@ function Chat() {
         try {
             setSendingMessage(true);
             setFailedMessage(null);
+            justSentMessageRef.current = true;
             isNearBottomRef.current = true;
+            isUserScrolledUpRef.current = false;
+            setShowScrollBottom(false);
 
             if (hasMedia) {
                 const formData = new FormData();
@@ -485,6 +502,7 @@ function Chat() {
             window.dispatchEvent(new Event("coroomies:refresh-counts"));
             scrollToBottom(true);
         } catch (error) {
+            justSentMessageRef.current = false;
             toast.error(errorMessage(error, "Could not send message"));
             if (!hasMedia) {
                 setFailedMessage({ content: contentToSend, receiver_id: selectedUser.id });
@@ -676,19 +694,43 @@ function Chat() {
 
     const selectedUserId = selectedUser?.id;
 
-    // Silent background poll every 6 seconds
+    // Silent background poll (8s for active chat messages, 24s for conversation/friend list)
     useEffect(() => {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         loadConversations();
         loadFriends();
+
+        let convTicks = 0;
         const interval = setInterval(() => {
-            loadConversations();
-            loadFriends();
+            if (document.visibilityState !== "visible") return;
+            convTicks++;
             if (selectedUserId) {
                 loadMessages(selectedUserId, false);
             }
-        }, 6000);
-        return () => clearInterval(interval);
+            if (convTicks % 3 === 0) {
+                loadConversations();
+                loadFriends();
+            }
+        }, 8000);
+
+        const onVisibilityChange = () => {
+            if (document.visibilityState === "visible") {
+                loadConversations();
+                loadFriends();
+                if (selectedUserId) {
+                    loadMessages(selectedUserId, false);
+                }
+            }
+        };
+
+        document.addEventListener("visibilitychange", onVisibilityChange);
+        window.addEventListener("focus", onVisibilityChange);
+
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener("visibilitychange", onVisibilityChange);
+            window.removeEventListener("focus", onVisibilityChange);
+        };
     }, [selectedUserId, loadConversations, loadFriends, loadMessages]);
 
     // Auto-scroll when messages update or conversation switched
@@ -697,10 +739,26 @@ function Chat() {
         if (peerChanged) {
             lastPeerIdRef.current = selectedUser?.id;
             isNearBottomRef.current = true;
+            isUserScrolledUpRef.current = false;
             setShowScrollBottom(false);
+            lastMessageCountRef.current = messages.length;
+            if (messagesRef.current) {
+                messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+            }
+            return;
         }
-        if (messagesRef.current && (isNearBottomRef.current || peerChanged)) {
-            scrollToBottom(!peerChanged);
+
+        const hasNewMessages = messages.length > lastMessageCountRef.current;
+        lastMessageCountRef.current = messages.length;
+
+        if (
+            justSentMessageRef.current ||
+            (hasNewMessages && isNearBottomRef.current && !isUserScrolledUpRef.current)
+        ) {
+            if (messagesRef.current) {
+                scrollToBottom(justSentMessageRef.current);
+            }
+            justSentMessageRef.current = false;
         }
     }, [messages, selectedUser]);
 
@@ -793,7 +851,7 @@ function Chat() {
                             <button
                                 type="button"
                                 onClick={() => handleQuickJoinFromMessage(inviteCode)}
-                                className="rounded-lg bg-gradient-to-r from-brand-600 to-violet-600 px-3 py-1.5 text-xs font-bold text-white shadow transition-all hover:scale-[1.02] active:scale-95"
+                                className="rounded-lg bg-brand-600 hover:bg-brand-700 px-3 py-1.5 text-xs font-bold text-white shadow-xs transition-all hover:scale-[1.02] active:scale-95 cursor-pointer"
                             >
                                 Join Group
                             </button>
@@ -977,7 +1035,7 @@ function Chat() {
                                     >
                                         <Avatar
                                             name={conv.name}
-                                            src={conv.avatar_url ? `${API_BASE}${conv.avatar_url}` : undefined}
+                                            src={resolveAvatarUrl(conv.avatar_url)}
                                             size="md"
                                         />
                                         <div className="min-w-0 flex-1">
@@ -1063,7 +1121,7 @@ function Chat() {
                                         >
                                             <Avatar
                                                 name={friend.name}
-                                                src={friend.avatar_url ? `${API_BASE}${friend.avatar_url}` : undefined}
+                                                src={resolveAvatarUrl(friend.avatar_url)}
                                                 size="md"
                                             />
                                             <div className="min-w-0 flex-1">
@@ -1116,7 +1174,7 @@ function Chat() {
                 {!selectedUser ? (
                     /* Blank / Unselected conversation state */
                     <div className="flex flex-1 flex-col items-center justify-center bg-slate-50/50 dark:bg-slate-900/40 p-6 text-center">
-                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-violet-600 text-white shadow-lg shadow-brand-500/20">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-md shadow-brand-500/20">
                             <MessageCircleIcon className="h-8 w-8" />
                         </div>
                         <h3 className="mt-4 text-base font-bold text-slate-900 dark:text-slate-100">
@@ -1150,7 +1208,7 @@ function Chat() {
                             >
                                 <Avatar
                                     name={selectedUser.name}
-                                    src={selectedUser.avatar_url ? `${API_BASE}${selectedUser.avatar_url}` : undefined}
+                                    src={resolveAvatarUrl(selectedUser.avatar_url)}
                                     size="md"
                                 />
                                 <div className="min-w-0">
@@ -1335,7 +1393,8 @@ function Chat() {
                             <div
                                 ref={messagesRef}
                                 onScroll={handleMessagesScroll}
-                                className="flex-1 space-y-3 overflow-y-auto p-3.5 sm:p-5 touch-scroll"
+                                className="flex-1 space-y-3 overflow-y-auto overscroll-y-contain touch-pan-y p-3.5 sm:p-5 touch-scroll"
+                                style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}
                             >
                                 {loadingMessages ? (
                                     <div className="flex justify-center py-16">
@@ -1347,7 +1406,7 @@ function Chat() {
                                         <div className="mx-auto max-w-sm rounded-2xl border border-slate-200/80 dark:border-slate-700 bg-white/90 dark:bg-slate-800/90 p-4 text-center shadow-xs">
                                             <Avatar
                                                 name={selectedUser.name}
-                                                src={selectedUser.avatar_url ? `${API_BASE}${selectedUser.avatar_url}` : undefined}
+                                                src={resolveAvatarUrl(selectedUser.avatar_url)}
                                                 size="lg"
                                                 className="mx-auto"
                                             />
@@ -1407,7 +1466,7 @@ function Chat() {
                                                         {!isOwn && (
                                                             <Avatar
                                                                 name={selectedUser.name}
-                                                                src={selectedUser.avatar_url ? `${API_BASE}${selectedUser.avatar_url}` : undefined}
+                                                                src={resolveAvatarUrl(selectedUser.avatar_url)}
                                                                 size="xs"
                                                                 className="mb-1"
                                                             />
@@ -1416,7 +1475,7 @@ function Chat() {
                                                         <div
                                                             className={`relative max-w-[82%] sm:max-w-[70%] rounded-2xl px-3.5 py-2.5 shadow-xs ${
                                                                 isOwn
-                                                                    ? "rounded-br-sm bg-gradient-to-br from-brand-600 to-violet-600 text-white shadow-brand-500/20"
+                                                                    ? "rounded-br-sm bg-brand-600 text-white shadow-xs"
                                                                     : "rounded-bl-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200/70 dark:border-slate-700"
                                                             }`}
                                                         >
@@ -1708,7 +1767,7 @@ function Chat() {
                         <div className="flex items-center gap-3.5 p-3 rounded-2xl bg-brand-50/60 dark:bg-brand-950/40 border border-brand-100 dark:border-brand-800">
                             <Avatar
                                 name={peerProfile.name}
-                                src={peerProfile.avatar_url ? `${API_BASE}${peerProfile.avatar_url}` : undefined}
+                                src={resolveAvatarUrl(peerProfile.avatar_url)}
                                 size="lg"
                             />
                             <div className="min-w-0 flex-1">

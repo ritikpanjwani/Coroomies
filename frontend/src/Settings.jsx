@@ -207,14 +207,14 @@ function Settings() {
             />
 
             {/* Tabs */}
-            <div className="mb-6 flex gap-1.5 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-800 p-1 shadow-card">
+            <div className="mb-6 flex gap-1 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800/80 p-1 shadow-xs">
                 {TABS.map(({ key, label, icon: Icon }) => (
                     <button
                         key={key}
-                        className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3.5 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-4 sm:text-sm ${
+                        className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3.5 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-4 sm:text-sm cursor-pointer ${
                             tab === key
-                                ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                                : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                                ? "bg-brand-600 text-white shadow-xs"
+                                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                         }`}
                         onClick={() => setTab(key)}
                     >

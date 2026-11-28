@@ -9,6 +9,8 @@ from psycopg.pq import TransactionStatus
 from psycopg_pool import ConnectionPool
 
 from app.config import (
+    DB_POOL_MAX_IDLE,
+    DB_POOL_MAX_LIFETIME,
     DB_POOL_MAX_SIZE,
     DB_POOL_MIN_SIZE,
     DB_POOL_TIMEOUT_SECONDS,
@@ -65,6 +67,9 @@ _pool = ConnectionPool(
     min_size=DB_POOL_MIN_SIZE,
     max_size=DB_POOL_MAX_SIZE,
     timeout=DB_POOL_TIMEOUT_SECONDS,
+    max_lifetime=DB_POOL_MAX_LIFETIME,
+    max_idle=DB_POOL_MAX_IDLE,
+    check=ConnectionPool.check_connection,
     open=False,
     close_returns=True,
     name="coroomies",
@@ -86,6 +91,50 @@ def _ensure_pool_open() -> None:
             _pool.open(wait=False)
 
 
+def open_pool() -> None:
+    """Pre-open the connection pool and warm up an active connection at startup."""
+    global _pool
+    if _pool is None:
+        raise RuntimeError("Database pool is closed")
+    with _pool_lock:
+        if _pool.closed:
+            _pool.open(wait=True)
+
+    # Warm an active connection so the first incoming request avoids TLS/TCP connection delay
+    try:
+        with _pool.connection(timeout=DB_POOL_TIMEOUT_SECONDS) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1;")
+        logger.info("Database connection pool pre-opened and warmed successfully")
+    except Exception as exc:
+        logger.warning("Database connection pool pre-warm check: %s", type(exc).__name__)
+
+
+def ensure_performance_indexes() -> None:
+    """Ensure critical query indexes exist without altering tables."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_blocked_pairs_lookup
+                        ON blocked_pairs (user_a_id, user_b_id);
+                    CREATE INDEX IF NOT EXISTS idx_messages_unread
+                        ON messages (receiver_id) WHERE is_read = FALSE;
+                    CREATE INDEX IF NOT EXISTS idx_roommate_requests_receiver_id
+                        ON roommate_requests (receiver_id, id DESC);
+                    CREATE INDEX IF NOT EXISTS idx_roommate_requests_sender_id
+                        ON roommate_requests (sender_id, id DESC);
+                    CREATE INDEX IF NOT EXISTS idx_expenses_user_date
+                        ON expenses (user_id, expense_date DESC);
+                    """
+                )
+                conn.commit()
+            logger.info("Performance indexes verified")
+    except Exception as exc:
+        logger.warning("Performance index check skipped: %s", type(exc).__name__)
+
+
 def get_connection():
     """Return a pooled connection.
 
@@ -101,5 +150,8 @@ def close_pool() -> None:
     global _pool
     with _pool_lock:
         if _pool is not None and not _pool.closed:
-            _pool.close()
+            try:
+                _pool.close(timeout=5.0)
+            except Exception as exc:
+                logger.warning("Database pool shutdown: %s", type(exc).__name__)
         _pool = None

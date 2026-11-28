@@ -71,7 +71,6 @@ from app.Routers.auth import router as auth_router
 from app.Routers.matches import router as matches_router
 from app.Routers.expenses import router as expenses_router
 from app.Routers.requests import router as requests_router
-from app.Routers.listings import router as listings_router
 from app.Routers.shared_expenses import router as shared_expenses_router
 from app.Routers.messages import router as messages_router
 from app.Routers.notifications import router as notifications_router
@@ -79,11 +78,10 @@ from app.Routers.groups import router as groups_router
 from app.Routers.chores import router as chores_router
 from app.Routers.rules import router as rules_router
 from app.Routers.reliability import router as reliability_router
-from app.Routers.vacancies import router as vacancies_router
 from app.Routers.assistant import router as assistant_router
 from app.Routers.team_ups import router as team_ups_router
 from app.Routers.settings import router as settings_router
-from app.database import close_pool, get_connection
+from app.database import close_pool, ensure_performance_indexes, get_connection, open_pool
 from app.Routers.chores import start_reminder_loop
 
 _reminder_stop_event = None
@@ -100,6 +98,8 @@ async def lifespan(app: FastAPI):
             "messages will not be delivered"
         )
     logger.info("Starting CoRoomies API (environment=%s)", "production" if IS_PRODUCTION else "development")
+    open_pool()
+    ensure_performance_indexes()
     _reminder_stop_event = start_reminder_loop()
     try:
         yield
@@ -245,7 +245,6 @@ app.include_router(profile_router)
 app.include_router(matches_router)
 app.include_router(expenses_router)
 app.include_router(requests_router)
-app.include_router(listings_router)
 app.include_router(shared_expenses_router)
 app.include_router(messages_router)
 app.include_router(notifications_router)
@@ -253,7 +252,6 @@ app.include_router(groups_router)
 app.include_router(chores_router)
 app.include_router(rules_router)
 app.include_router(reliability_router)
-app.include_router(vacancies_router)
 app.include_router(assistant_router)
 app.include_router(team_ups_router)
 app.include_router(settings_router)

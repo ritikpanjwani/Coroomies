@@ -2,27 +2,27 @@ import Spinner from "./Spinner";
 
 const VARIANTS = {
   primary:
-    "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm shadow-brand-600/25 hover:from-brand-700 hover:to-violet-600 focus-visible:ring-brand-500",
+    "bg-brand-600 hover:bg-brand-700 text-white shadow-xs focus-visible:ring-brand-500 active:bg-brand-800",
   secondary:
-    "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 focus-visible:ring-slate-400 shadow-sm",
+    "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/80 focus-visible:ring-slate-400 shadow-xs",
   ghost:
     "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-100 focus-visible:ring-slate-400",
   danger:
-    "bg-rose-500 text-white shadow-sm shadow-rose-500/25 hover:bg-rose-600 focus-visible:ring-rose-500",
+    "bg-rose-600 text-white shadow-xs hover:bg-rose-700 focus-visible:ring-rose-500",
   dangerOutline:
-    "text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/40 hover:bg-rose-50 dark:hover:bg-rose-500/10 focus-visible:ring-rose-400",
+    "text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 focus-visible:ring-rose-400",
   dark:
     "bg-slate-900 text-white hover:bg-slate-800 focus-visible:ring-slate-700",
   success:
-    "bg-emerald-500 text-white shadow-sm shadow-emerald-500/25 hover:bg-emerald-600 focus-visible:ring-emerald-500",
+    "bg-emerald-600 text-white shadow-xs hover:bg-emerald-700 focus-visible:ring-emerald-500",
   accent:
-    "bg-gradient-to-r from-accent-500 to-brand-500 text-white shadow-sm shadow-accent-500/25 hover:from-accent-600 hover:to-brand-600 focus-visible:ring-accent-500",
+    "bg-brand-600 text-white shadow-xs hover:bg-brand-700 focus-visible:ring-brand-500",
 };
 
 const SIZES = {
-  sm: "px-3 py-1.5 min-h-[38px] text-xs sm:text-sm",
-  md: "px-4 py-2.5 min-h-[44px] text-sm",
-  lg: "px-5 py-3 min-h-[48px] text-base sm:text-sm",
+  sm: "px-3 py-1.5 min-h-[36px] text-xs font-medium rounded-lg",
+  md: "px-4 py-2 min-h-[40px] text-sm font-medium rounded-xl",
+  lg: "px-5 py-2.5 min-h-[46px] text-sm sm:text-base font-semibold rounded-xl",
 };
 
 export default function Button({

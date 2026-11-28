@@ -48,6 +48,7 @@ import {
 } from "./components/Icons";
 
 import { errorMessage, formatCurrency } from "./utils/format";
+import { getFieldJumpTarget } from "./utils/profileValidation";
 
 import {
 
@@ -88,12 +89,12 @@ function ScoreRing({ score, size = "lg" }) {
 function MatchDetail({ match, relState, onClose, onSendRequest, onOpenRequests, onMessage }) {
     const reasons = match.reasons || [];
     const matched = reasons.filter((r) => r.match);
-    const mismatched = reasons.filter((r) => !r.match);
+    const mismatched = reasons.filter((r) => !r.match && r.match !== null);
 
     return (
         <Modal open onClose={onClose} title="Roommate Compatibility Details">
-            <div className="flex items-center gap-4">
-                <Avatar name={match.name} size="xl" />
+            <div className="flex items-start gap-4">
+                <Avatar name={match.name} src={match.avatar_url} size="xl" />
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="truncate text-xl font-bold text-slate-900 dark:text-slate-100">
@@ -107,6 +108,20 @@ function MatchDetail({ match, relState, onClose, onSendRequest, onOpenRequests, 
                         {match.gender && match.gender !== "prefer_not_to_say" && (
                             <span className="inline-flex items-center rounded-md bg-brand-50 dark:bg-brand-950/50 px-2 py-0.5 text-xs font-semibold text-brand-700 dark:text-brand-300 border border-brand-200/60 dark:border-brand-800/60">
                                 {match.gender.charAt(0).toUpperCase() + match.gender.slice(1)}
+                            </span>
+                        )}
+                        {match.housing_intent && (
+                            <Badge
+                                variant={match.housing_intent === "have_flat" ? "brand" : match.housing_intent === "need_room" ? "info" : "secondary"}
+                                size="sm"
+                            >
+                                {match.housing_intent === "have_flat" ? "🏠 Has Flat" : match.housing_intent === "need_room" ? "🔑 Needs Room" : "🤝 Team Up"}
+                            </Badge>
+                        )}
+                        {match.move_in_date && (
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                <ClockIcon className="h-3 w-3" />
+                                <span>Move in: {match.move_in_date.replace("_", " ")}</span>
                             </span>
                         )}
                     </div>
@@ -136,6 +151,26 @@ function MatchDetail({ match, relState, onClose, onSendRequest, onOpenRequests, 
                             </span>
                         )}
                     </div>
+
+                    {/* Bio quote if provided */}
+                    {match.bio && (
+                        <p className="mt-2 text-xs italic text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60 leading-relaxed">
+                            &ldquo;{match.bio}&rdquo;
+                        </p>
+                    )}
+
+                    {/* Preferred Localities chips */}
+                    {(match.preferred_localities || []).length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-slate-400">Localities:</span>
+                            {match.preferred_localities.map((loc, i) => (
+                                <span key={i} className="text-[10px] px-2 py-0.5 rounded-md bg-brand-50/70 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300 border border-brand-200/50 dark:border-brand-800/50 font-medium">
+                                    {loc}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="mt-2.5 flex items-center gap-2">
                         <div className="h-2 max-w-[9rem] flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                             <div
@@ -461,70 +496,38 @@ function RequestsPanel({ setPage, activeSubtab, onSubtabChange }) {
 
             {/* Subtabs */}
 
-            <div className="mb-6 flex gap-1.5 overflow-x-auto no-scrollbar rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-sm">
-
+            <div className="mb-6 flex gap-1 overflow-x-auto no-scrollbar rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800/80 p-1 shadow-xs">
                 <button
-
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm ${
-
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all sm:px-4 sm:text-sm cursor-pointer ${
                         tab === "received"
-
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-
-                            : "text-slate-500 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
-
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
-
                     onClick={() => handleTabChange("received")}
-
                 >
-
                     Received
-
                     {receivedPending.length > 0 && (
-
                         <span
-
                             className={`ml-2 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${
-
                                 tab === "received"
-
                                     ? "bg-white/25 text-white"
-
-                                    : "bg-amber-100 text-amber-700 dark:text-amber-300"
-
+                                    : "bg-rose-500 text-white"
                             }`}
-
                         >
-
                             {receivedPending.length}
-
                         </span>
-
                     )}
-
                 </button>
-
                 <button
-
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium transition-colors sm:px-4 sm:text-sm ${
-
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-all sm:px-4 sm:text-sm cursor-pointer ${
                         tab === "sent"
-
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-
-                            : "text-slate-500 dark:text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
-
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
-
                     onClick={() => handleTabChange("sent")}
-
                 >
-
                     Sent ({sentRequests.length})
-
                 </button>
-
             </div>
 
 
@@ -860,6 +863,8 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
     const [minBudgetFilter, setMinBudgetFilter] = useState("");
     const [maxBudgetFilter, setMaxBudgetFilter] = useState("");
     const [lifestyleFilter, setLifestyleFilter] = useState("all");
+    const [housingIntentFilter, setHousingIntentFilter] = useState("all");
+    const [localityFilter, setLocalityFilter] = useState("");
     const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
     // Profile completion requirement status from server
@@ -898,6 +903,8 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
         minBudgetFilter !== "" ||
         maxBudgetFilter !== "" ||
         lifestyleFilter !== "all" ||
+        housingIntentFilter !== "all" ||
+        localityFilter ||
         filterMinScore > 0
     );
 
@@ -910,6 +917,8 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
         setMinBudgetFilter("");
         setMaxBudgetFilter("");
         setLifestyleFilter("all");
+        setHousingIntentFilter("all");
+        setLocalityFilter("");
         setFilterMinScore(0);
         setSortBy("compatibility");
     };
@@ -926,8 +935,15 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                 m.degree?.toLowerCase().includes(q) ||
                 m.stream?.toLowerCase().includes(q) ||
                 m.location?.toLowerCase().includes(q) ||
-                m.occupation?.toLowerCase().includes(q)
+                m.occupation?.toLowerCase().includes(q) ||
+                m.bio?.toLowerCase().includes(q) ||
+                (m.preferred_localities || []).some((loc) => loc.toLowerCase().includes(q))
             );
+        }
+
+        // Housing Intent filter
+        if (housingIntentFilter !== "all") {
+            list = list.filter((m) => (m.housing_intent || "").toLowerCase() === housingIntentFilter.toLowerCase());
         }
 
         // Gender filter
@@ -949,10 +965,17 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
             }
         }
 
-        // Location
+        // Location & Locality
         if (locationFilter.trim()) {
             const lq = locationFilter.trim().toLowerCase();
             list = list.filter((m) => m.location?.toLowerCase().includes(lq));
+        }
+        if (localityFilter.trim()) {
+            const locQ = localityFilter.trim().toLowerCase();
+            list = list.filter((m) =>
+                (m.preferred_localities || []).some((loc) => loc.toLowerCase().includes(locQ)) ||
+                (m.location || "").toLowerCase().includes(locQ)
+            );
         }
 
         // Budget
@@ -995,7 +1018,7 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
         }
 
         return list;
-    }, [allMatches, searchQuery, genderFilter, minAgeFilter, maxAgeFilter, locationFilter, minBudgetFilter, maxBudgetFilter, lifestyleFilter, filterMinScore, sortBy]);
+    }, [allMatches, searchQuery, housingIntentFilter, localityFilter, genderFilter, minAgeFilter, maxAgeFilter, locationFilter, minBudgetFilter, maxBudgetFilter, lifestyleFilter, filterMinScore, sortBy]);
 
     const loadMatches = useCallback(
         async (showLoading = false) => {
@@ -1045,8 +1068,16 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
             await loadMatches();
         })();
 
-    }, [loadMatches]);
+        // Listen for profile updates and reload matches immediately
+        const handleProfileUpdated = () => {
+            void loadMatches(false);
+        };
+        window.addEventListener("coroomies:profile-updated", handleProfileUpdated);
 
+        return () => {
+            window.removeEventListener("coroomies:profile-updated", handleProfileUpdated);
+        };
+    }, [loadMatches]);
 
     const handleRefresh = async () => {
 
@@ -1196,13 +1227,28 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                                     We match roommates based on mutually preferred gender, verified age, and routine compatibility.
                                 </p>
                                 {missingFields.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                        <span className="text-[11px] font-semibold text-amber-800/80 dark:text-amber-300/80">Missing:</span>
+                                    <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                                        <span className="text-[11px] font-semibold text-amber-800/90 dark:text-amber-300/90 mr-0.5">
+                                            Jump to missing:
+                                        </span>
                                         {missingFields.map((f, i) => (
-                                            <span key={i} className="inline-flex items-center gap-1 rounded-md bg-white/90 dark:bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:text-amber-200 border border-amber-200 dark:border-amber-800/60 shadow-2xs">
-                                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                                {f}
-                                            </span>
+                                            <button
+                                                key={i}
+                                                type="button"
+                                                onClick={() => {
+                                                    const target = getFieldJumpTarget(f);
+                                                    localStorage.setItem(
+                                                        "coroomies:jump_to_field",
+                                                        JSON.stringify(target)
+                                                    );
+                                                    setPage && setPage("profile");
+                                                }}
+                                                className="inline-flex items-center gap-1 rounded-md bg-white/95 hover:bg-white dark:bg-slate-800/90 dark:hover:bg-slate-800 px-2.5 py-1 text-[11px] font-medium text-amber-900 dark:text-amber-200 border border-amber-200/90 dark:border-amber-800/80 shadow-2xs hover:border-amber-400 dark:hover:border-amber-600 transition-all cursor-pointer group"
+                                                title={`Click to fill ${f} in profile`}
+                                            >
+                                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 group-hover:scale-125 transition-transform" />
+                                                <span>+ {f}</span>
+                                            </button>
                                         ))}
                                     </div>
                                 )}
@@ -1273,7 +1319,27 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                     {/* Advanced Filters Drawer */}
                     {showAdvancedFilters && (
                         <div className="rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/70 dark:bg-slate-800/40 p-4 space-y-4 pt-4">
-                            <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+                            <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+                                {/* Housing Intent Filter */}
+                                <Select
+                                    label="Housing Intent"
+                                    value={housingIntentFilter}
+                                    onChange={(e) => setHousingIntentFilter(e.target.value)}
+                                >
+                                    <option value="all">All Housing Situations</option>
+                                    <option value="have_flat">Have a flat (Needs Flatmate) 🏠</option>
+                                    <option value="need_room">Need a room (Seeking Flat) 🔑</option>
+                                    <option value="find_together">Find a flat together (Team Up) 🤝</option>
+                                </Select>
+
+                                {/* Locality / Neighborhood Filter */}
+                                <Input
+                                    label="Neighborhood / Locality"
+                                    placeholder="e.g. Koramangala, Indiranagar"
+                                    value={localityFilter}
+                                    onChange={(e) => setLocalityFilter(e.target.value)}
+                                />
+
                                 {/* Gender Filter */}
                                 <Select
                                     label="Gender"
@@ -1285,9 +1351,9 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                                     <option value="male">Male only</option>
                                 </Select>
 
-                                {/* Location Filter */}
+                                {/* City / Broad Location Filter */}
                                 <Input
-                                    label="Location"
+                                    label="City / Location"
                                     placeholder="e.g. Bangalore, Mumbai"
                                     value={locationFilter}
                                     onChange={(e) => setLocationFilter(e.target.value)}
@@ -1464,6 +1530,25 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                                             </p>
                                         )}
 
+                                        {/* Housing Intent & Move-in timeline badges */}
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                            {match.housing_intent && (
+                                                <Badge
+                                                    variant={match.housing_intent === "have_flat" ? "brand" : match.housing_intent === "need_room" ? "info" : "secondary"}
+                                                    size="sm"
+                                                    className="text-[10px] font-semibold"
+                                                >
+                                                    {match.housing_intent === "have_flat" ? "🏠 Has Flat" : match.housing_intent === "need_room" ? "🔑 Needs Room" : "🤝 Team Up"}
+                                                </Badge>
+                                            )}
+                                            {match.move_in_date && (
+                                                <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                                    <ClockIcon className="h-3 w-3 shrink-0 text-slate-400" />
+                                                    <span>Move in: {match.move_in_date.replace("_", " ")}</span>
+                                                </span>
+                                            )}
+                                        </div>
+
                                         {/* Location & Budget Pills */}
                                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                                             {match.location && (
@@ -1483,33 +1568,81 @@ function CandidatesPanel({ setPage, onOpenRequests }) {
                                                 </span>
                                             )}
                                         </div>
+
+                                        {/* Preferred Localities */}
+                                        {(match.preferred_localities || []).length > 0 && (
+                                            <div className="mt-1.5 flex flex-wrap gap-1">
+                                                {match.preferred_localities.slice(0, 2).map((loc, i) => (
+                                                    <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50/80 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300 border border-brand-200/50 dark:border-brand-800/50 font-medium truncate max-w-[120px]">
+                                                        📍 {loc}
+                                                    </span>
+                                                ))}
+                                                {match.preferred_localities.length > 2 && (
+                                                    <span className="text-[10px] text-slate-400 self-center">
+                                                        +{match.preferred_localities.length - 2} more
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {/* Bio preview if provided */}
+                                        {match.bio && (
+                                            <p className="mt-2 text-xs italic text-slate-600 dark:text-slate-300 line-clamp-2 bg-slate-50/80 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                                                &ldquo;{match.bio}&rdquo;
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* Match score & Compatibility section */}
+                                {/* Match score, Highlights & Lifestyle section */}
                                 <div className="rounded-xl border border-slate-100 bg-slate-50/70 dark:border-slate-800 dark:bg-slate-800/40 p-3 flex items-center gap-3 min-w-0">
                                     <div className="shrink-0">
                                         <ScoreRing score={match.compatibility} />
                                     </div>
-                                    <div className="min-w-0 flex-1">
+                                    <div className="min-w-0 flex-1 space-y-1">
                                         <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
                                             {compatibilityLabel(match.compatibility)}
                                         </p>
-                                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                                            {(match.reasons || [])
-                                                .slice(0, 3)
-                                                .map((reason, i) => (
-                                                    <Badge
+                                        {/* Highlights pills */}
+                                        {(match.highlights || []).length > 0 ? (
+                                            <div className="flex flex-wrap gap-1">
+                                                {match.highlights.slice(0, 2).map((h, i) => (
+                                                    <span
                                                         key={i}
-                                                        variant={reason.match ? "success" : "warning"}
-                                                        dot
-                                                        size="sm"
-                                                        className="text-[10px] px-1.5 py-0.5 shrink-0"
+                                                        className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/60 dark:border-emerald-800/60 px-1.5 py-0.5 rounded"
                                                     >
-                                                        {reason.label}
-                                                    </Badge>
+                                                        ✨ {h}
+                                                    </span>
                                                 ))}
-                                        </div>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-wrap items-center gap-1">
+                                                {(match.reasons || [])
+                                                    .slice(0, 2)
+                                                    .map((reason, i) => (
+                                                        <Badge
+                                                            key={i}
+                                                            variant={reason.match ? "success" : "warning"}
+                                                            dot
+                                                            size="sm"
+                                                            className="text-[10px] px-1.5 py-0.5 shrink-0"
+                                                        >
+                                                            {reason.label}
+                                                        </Badge>
+                                                    ))}
+                                            </div>
+                                        )}
+
+                                        {/* Lifestyle tags */}
+                                        {(match.lifestyle_tags || []).length > 0 && (
+                                            <div className="flex flex-wrap gap-1 pt-0.5">
+                                                {match.lifestyle_tags.slice(0, 3).map((tag, i) => (
+                                                    <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-medium">
+                                                        {tag}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -1785,7 +1918,7 @@ function StableMatchPanel() {
 
             {data?.my_match ? (
 
-                <Card className="mb-5 border-emerald-100 bg-gradient-to-br from-brand-50 to-accent-50 p-5">
+                <Card className="mb-5 border-emerald-200/80 bg-emerald-50/40 dark:border-emerald-800/60 dark:bg-emerald-950/20 p-5">
 
                     <div className="flex items-center gap-4">
 
@@ -2533,7 +2666,7 @@ function TeamUpPanel({ setPage }) {
 
             {myPost && (
 
-                <Card className="mb-6 border-brand-100 bg-gradient-to-br from-brand-50 to-violet-50 p-5">
+                <Card className="mb-6 border-brand-200/80 bg-brand-50/40 dark:border-brand-800/60 dark:bg-brand-950/20 p-5">
 
                     <div className="flex items-start justify-between gap-3">
 
@@ -2628,45 +2761,47 @@ function TeamUpPanel({ setPage }) {
                     {posts.map((post) => (
 
                         <Card key={post.id} className="flex flex-col p-5">
-
                             <div className="flex items-start justify-between gap-3">
-
-                                <Avatar name={post.user_name} size="md" />
-
-                                <div className="text-right">
-
+                                <Avatar name={post.user_name} src={post.avatar_url} size="md" />
+                                <div className="flex flex-col items-end gap-1">
                                     {post.compatibility !== null && (
-
                                         <Badge variant="brand" dot>
-
                                             {post.compatibility}% fit
-
                                         </Badge>
-
                                     )}
-
+                                    {post.housing_intent && (
+                                        <Badge
+                                            variant={post.housing_intent === "have_flat" ? "brand" : post.housing_intent === "need_room" ? "info" : "secondary"}
+                                            size="sm"
+                                            className="text-[10px]"
+                                        >
+                                            {post.housing_intent === "have_flat" ? "🏠 Has Flat" : post.housing_intent === "need_room" ? "🔑 Needs Room" : "🤝 Team Up"}
+                                        </Badge>
+                                    )}
                                 </div>
-
                             </div>
 
                             <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-slate-100">
-
                                 {post.headline}
-
                             </h3>
 
                             <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-500">
-
                                 <MapPinIcon className="h-4 w-4 shrink-0" />
-
                                 <span className="truncate">{post.area}</span>
-
                             </p>
 
+                            {(post.preferred_localities || []).length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1">
+                                    {post.preferred_localities.slice(0, 3).map((loc, i) => (
+                                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-brand-50/70 dark:bg-brand-950/40 text-brand-700 dark:text-brand-300 font-medium border border-brand-200/50 dark:border-brand-800/50">
+                                            📍 {loc}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+
                             <p className="mt-2 line-clamp-2 text-sm text-slate-400 dark:text-slate-500">
-
                                 {post.description}
-
                             </p>
 
                             {post.budget_min !== null && (
@@ -2811,12 +2946,12 @@ function Matches({ setPage }) {
             />
 
             {/* Flatmate discovery tabs */}
-            <div className="mb-6 flex gap-1.5 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-1 shadow-sm">
+            <div className="mb-6 flex gap-1 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800/80 p-1 shadow-xs">
                 <button
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-3.5 sm:text-sm ${
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-3.5 sm:text-sm cursor-pointer ${
                         tab === "candidates"
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
                     onClick={() => setTab("candidates")}
                 >
@@ -2824,10 +2959,10 @@ function Matches({ setPage }) {
                     Discover Flatmates
                 </button>
                 <button
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-3.5 sm:text-sm ${
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-3.5 sm:text-sm cursor-pointer ${
                         tab === "stable"
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
                     onClick={() => setTab("stable")}
                 >
@@ -2835,10 +2970,10 @@ function Matches({ setPage }) {
                     Best Matches
                 </button>
                 <button
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-3.5 sm:text-sm ${
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-3.5 sm:text-sm cursor-pointer ${
                         tab === "received"
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
                     onClick={() => setTab("received")}
                 >
@@ -2857,10 +2992,10 @@ function Matches({ setPage }) {
                     )}
                 </button>
                 <button
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-3.5 sm:text-sm ${
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-3.5 sm:text-sm cursor-pointer ${
                         tab === "sent"
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
                     onClick={() => setTab("sent")}
                 >
@@ -2868,10 +3003,10 @@ function Matches({ setPage }) {
                     Sent Requests
                 </button>
                 <button
-                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-3.5 sm:text-sm ${
+                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-3.5 sm:text-sm cursor-pointer ${
                         tab === "teamup"
-                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                            ? "bg-brand-600 text-white shadow-xs"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                     }`}
                     onClick={() => setTab("teamup")}
                 >

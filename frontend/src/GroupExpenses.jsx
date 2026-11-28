@@ -87,7 +87,7 @@ export function ExpenseBubble({ expense, myUserId, paying, onOpen, onPay }) {
                     <div className="mt-2.5 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                             <div
-                                className="h-full rounded-full bg-gradient-to-r from-brand-600 to-violet-500 transition-all"
+                                className="h-full rounded-full bg-brand-600 transition-all"
                                 style={{
                                     width: `${Math.round((paidCount / total) * 100)}%`,
                                 }}
@@ -1361,7 +1361,7 @@ function SettleUpInner({
                                 <button
                                     type="button"
                                     onClick={handleLaunchUpi}
-                                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 px-4 py-3 text-sm font-bold text-white shadow-sm transition-all active:scale-[0.99]"
+                                    className="w-full flex items-center justify-center gap-2 rounded-xl bg-brand-600 hover:bg-brand-700 px-4 py-3 text-sm font-bold text-white shadow-xs transition-all active:scale-[0.99] cursor-pointer"
                                 >
                                     <ArrowUpRight className="h-4 w-4" />
                                     {isMobile
@@ -1575,7 +1575,7 @@ export function ExpenseDetailModal({
             <div className="mt-5">
                 <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
                     <div
-                        className="h-full rounded-full bg-gradient-to-r from-brand-600 to-violet-500 transition-all"
+                        className="h-full rounded-full bg-brand-600 transition-all"
                         style={{
                             width: `${Math.min(
                                 100,

@@ -12,7 +12,7 @@ export default function EmptyState({
       } px-6`}
     >
       {icon && (
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-50 to-violet-50 dark:from-brand-500/15 dark:to-violet-500/15 text-brand-500 dark:text-brand-300 ring-1 ring-inset ring-brand-100 dark:ring-brand-500/20 shadow-card">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 ring-1 ring-brand-200/60 dark:ring-brand-800/60 shadow-xs">
           {icon}
         </div>
       )}

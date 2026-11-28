@@ -111,3 +111,43 @@ export function calculateAge(dobStr) {
   }
   return age >= 0 ? age : null;
 }
+
+/**
+ * Resolves an avatar URL into a valid, safe absolute or relative image URL.
+ * Handles:
+ * - Absolute external URLs (e.g. Google OAuth avatars: https://lh3.googleusercontent.com/...)
+ * - Pre-encoded data URLs and blob URIs
+ * - Relative backend paths (e.g. /settings/avatar-file/...)
+ * - Accidental double-concatenation prefixes (e.g. API_BASE + https://...)
+ */
+export function resolveAvatarUrl(url) {
+  if (!url || typeof url !== "string") return "";
+  let trimmed = url.trim();
+  if (!trimmed) return "";
+
+  // Guard against accidental double concatenation (e.g. https://api...https://lh3...)
+  const httpsIdx = trimmed.indexOf("https://", 1);
+  const httpIdx = trimmed.indexOf("http://", 1);
+  if (httpsIdx > 0) {
+    trimmed = trimmed.substring(httpsIdx);
+  } else if (httpIdx > 0) {
+    trimmed = trimmed.substring(httpIdx);
+  }
+
+  // If already absolute or blob/data URI, return directly
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return trimmed;
+  }
+
+  // Dynamically resolve API_BASE for relative paths
+  const configured = import.meta.env?.VITE_API_URL || "";
+  const base = configured.replace(/\/+$/, "");
+  const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return base ? `${base}${path}` : path;
+}
+

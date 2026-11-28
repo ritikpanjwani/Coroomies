@@ -1,13 +1,13 @@
 const ACCENTS = {
-  brand: "from-brand-500 to-violet-500",
-  accent: "from-accent-500 to-brand-500",
-  cyan: "from-cyan-400 to-accent-600",
-  sky: "from-sky-500 to-blue-500",
-  violet: "from-violet-500 to-purple-500",
-  amber: "from-amber-500 to-orange-500",
-  rose: "from-rose-500 to-pink-500",
-  emerald: "from-emerald-500 to-teal-600",
-  slate: "from-slate-600 to-slate-800",
+  brand: "bg-brand-50 text-brand-600 dark:bg-brand-950/50 dark:text-brand-400 border border-brand-200/60 dark:border-brand-800/60",
+  accent: "bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400 border border-violet-200/60 dark:border-violet-800/60",
+  cyan: "bg-cyan-50 text-cyan-600 dark:bg-cyan-950/50 dark:text-cyan-400 border border-cyan-200/60 dark:border-cyan-800/60",
+  sky: "bg-sky-50 text-sky-600 dark:bg-sky-950/50 dark:text-sky-400 border border-sky-200/60 dark:border-sky-800/60",
+  violet: "bg-violet-50 text-violet-600 dark:bg-violet-950/50 dark:text-violet-400 border border-violet-200/60 dark:border-violet-800/60",
+  amber: "bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60",
+  rose: "bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/60",
+  emerald: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60",
+  slate: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/60",
 };
 
 export default function StatCard({
@@ -37,7 +37,7 @@ export default function StatCard({
           {label}
         </span>
         <div
-          className={`flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${ACCENTS[accent] || ACCENTS.brand} text-white shadow-sm transition-transform duration-200 group-hover:scale-105`}
+          className={`flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-xl ${ACCENTS[accent] || ACCENTS.brand} shadow-2xs transition-transform duration-200 group-hover:scale-105`}
         >
           {icon}
         </div>

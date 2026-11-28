@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -10,18 +11,37 @@ router = APIRouter(prefix="/profile", tags=["Profile"])
 
 MANDATORY_FIELDS = [
     ("Full Name", lambda u_name, p: bool(u_name and str(u_name).strip())),
-    ("Date of Birth (Age)", lambda u_name, p: bool(p.get("dob"))),
-    ("Gender", lambda u_name, p: bool(p.get("gender"))),
-    ("Preferred Flatmate Gender", lambda u_name, p: bool(p.get("preferred_flatmate_gender"))),
+    ("Date of Birth (Age)", lambda u_name, p: 18 <= (calculate_age_from_dob(p.get("dob")) or 0) <= 100),
+    ("Gender", lambda u_name, p: p.get("gender") in ("male", "female", "prefer_not_to_say")),
+    ("Preferred Flatmate Gender", lambda u_name, p: p.get("preferred_flatmate_gender") in ("male", "female", "unisex")),
     ("Location", lambda u_name, p: bool(p.get("location") and str(p.get("location")).strip())),
     ("Budget Range", lambda u_name, p: p.get("budget_min") is not None or p.get("budget_max") is not None),
-    ("Occupation", lambda u_name, p: bool(p.get("occupation") and str(p.get("occupation")).strip())),
+    ("Housing Intent", lambda u_name, p: p.get("housing_intent") in ("have_flat", "need_room", "find_together")),
+]
+
+RECOMMENDED_FIELDS = [
     ("Smoking Preference", lambda u_name, p: bool(p.get("smoking_preference"))),
     ("Drinking Preference", lambda u_name, p: bool(p.get("drinking_preference"))),
     ("Food Preference", lambda u_name, p: bool(p.get("food_preferences"))),
     ("Sleep Schedule", lambda u_name, p: bool(p.get("sleep_schedule"))),
-    ("Cleanliness Preference", lambda u_name, p: p.get("cleanliness") is not None),
+    ("Cleanliness Standard", lambda u_name, p: p.get("cleanliness") is not None),
+    ("Noise Tolerance", lambda u_name, p: p.get("noise_tolerance") is not None),
 ]
+
+
+def _parse_json_list(val) -> list[str]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            return [val]
+    return []
 
 
 def compute_profile_completeness(user_name: str | None, profile_dict: dict) -> tuple[bool, int, list[str]]:
@@ -61,13 +81,26 @@ def create_profile(
                 k: (v.value if hasattr(v, "value") else v)
                 for k, v in provided.items()
             }
+
+            # New profiles default to hidden until discovery is explicitly enabled
+            if "profile_visibility" not in cleaned_provided or not cleaned_provided["profile_visibility"]:
+                cleaned_provided["profile_visibility"] = "hidden"
+
+            # Serialize structured JSON columns
+            if "preferred_localities" in cleaned_provided and cleaned_provided["preferred_localities"] is not None:
+                cleaned_provided["preferred_localities"] = json.dumps(cleaned_provided["preferred_localities"])
+            if "deal_breakers" in cleaned_provided and cleaned_provided["deal_breakers"] is not None:
+                cleaned_provided["deal_breakers"] = json.dumps(cleaned_provided["deal_breakers"])
+
             allowed_columns = [
                 "sleep_schedule", "cleanliness", "noise_tolerance", "study_habits",
                 "smoking_preference", "food_preferences", "social_preferences", "guest_preferences",
                 "work_from_home", "study_environment", "pets_preference", "college", "degree",
                 "stream", "year", "dob", "gender", "preferred_flatmate_gender", "location",
                 "budget_min", "budget_max", "occupation", "drinking_preference",
-                "preferred_age_min", "preferred_age_max"
+                "preferred_age_min", "preferred_age_max",
+                "housing_intent", "move_in_date", "preferred_localities", "deal_breakers",
+                "bio", "profile_visibility"
             ]
             columns = [c for c in allowed_columns if c in cleaned_provided]
             values = [cleaned_provided[c] for c in columns]
@@ -116,6 +149,13 @@ def update_profile(
                 k: (v.value if hasattr(v, "value") else v)
                 for k, v in provided.items()
             }
+
+            # Serialize structured JSON columns
+            if "preferred_localities" in cleaned_provided and cleaned_provided["preferred_localities"] is not None:
+                cleaned_provided["preferred_localities"] = json.dumps(cleaned_provided["preferred_localities"])
+            if "deal_breakers" in cleaned_provided and cleaned_provided["deal_breakers"] is not None:
+                cleaned_provided["deal_breakers"] = json.dumps(cleaned_provided["deal_breakers"])
+
             allowed_columns = set(ProfileCreate.model_fields)
             columns = [c for c in cleaned_provided if c in allowed_columns]
             if not columns:
@@ -173,8 +213,7 @@ def get_profile_completion_status(
                 """
                 SELECT
                     dob, gender, preferred_flatmate_gender, location,
-                    budget_min, budget_max, occupation, smoking_preference,
-                    drinking_preference, food_preferences, sleep_schedule, cleanliness
+                    budget_min, budget_max, housing_intent
                 FROM student_profiles
                 WHERE user_id = %s
                 """,
@@ -196,12 +235,7 @@ def get_profile_completion_status(
                 "location": row[3],
                 "budget_min": row[4],
                 "budget_max": row[5],
-                "occupation": row[6],
-                "smoking_preference": row[7],
-                "drinking_preference": row[8],
-                "food_preferences": row[9],
-                "sleep_schedule": row[10],
-                "cleanliness": row[11],
+                "housing_intent": row[6],
             }
 
             is_comp, pct, missing = compute_profile_completeness(user_name, prof_dict)
@@ -254,7 +288,13 @@ def get_profile(
                     occupation,
                     drinking_preference,
                     preferred_age_min,
-                    preferred_age_max
+                    preferred_age_max,
+                    housing_intent,
+                    move_in_date,
+                    preferred_localities,
+                    deal_breakers,
+                    bio,
+                    profile_visibility
                 FROM student_profiles
                 WHERE user_id = %s
                 """,
@@ -294,6 +334,12 @@ def get_profile(
                     "drinking_preference": None,
                     "preferred_age_min": None,
                     "preferred_age_max": None,
+                    "housing_intent": None,
+                    "move_in_date": None,
+                    "preferred_localities": [],
+                    "deal_breakers": [],
+                    "bio": None,
+                    "profile_visibility": "hidden",
                     "is_complete": False,
                     "completion_percentage": pct,
                     "missing_fields": missing,
@@ -326,6 +372,12 @@ def get_profile(
                 "drinking_preference": profile[22],
                 "preferred_age_min": profile[23],
                 "preferred_age_max": profile[24],
+                "housing_intent": profile[25],
+                "move_in_date": profile[26],
+                "preferred_localities": _parse_json_list(profile[27]),
+                "deal_breakers": _parse_json_list(profile[28]),
+                "bio": profile[29],
+                "profile_visibility": profile[30] or "hidden",
             }
 
             is_comp, pct, missing = compute_profile_completeness(user_name, prof_dict)
@@ -374,14 +426,6 @@ def get_user_profile(
             req_row = cursor.fetchone()
             is_connected = req_row and req_row[1] == "accepted"
 
-            # Email only revealed if connected
-            email = None
-            if is_connected:
-                cursor.execute("SELECT email FROM users WHERE id = %s", (target_user_id,))
-                e_row = cursor.fetchone()
-                if e_row:
-                    email = e_row[0]
-
             cursor.execute(
                 """
                 SELECT
@@ -389,13 +433,29 @@ def get_user_profile(
                     smoking_preference, food_preferences, social_preferences, guest_preferences,
                     work_from_home, study_environment, pets_preference, college, degree, stream, year,
                     dob, gender, preferred_flatmate_gender, location, budget_min, budget_max,
-                    occupation, drinking_preference, preferred_age_min, preferred_age_max
+                    occupation, drinking_preference, preferred_age_min, preferred_age_max,
+                    housing_intent, move_in_date, preferred_localities, deal_breakers,
+                    bio, profile_visibility
                 FROM student_profiles
                 WHERE user_id = %s
                 """,
                 (target_user_id,),
             )
             profile = cursor.fetchone()
+
+            # Enforce visibility: hidden profiles are private unless viewer is owner or connected
+            if profile:
+                visibility = profile[30] or "hidden"
+                if visibility == "hidden" and current_user_id != target_user_id and not is_connected:
+                    raise HTTPException(status_code=404, detail="This profile is private or not discoverable.")
+
+            # Email only revealed if connected
+            email = None
+            if is_connected:
+                cursor.execute("SELECT email FROM users WHERE id = %s", (target_user_id,))
+                e_row = cursor.fetchone()
+                if e_row:
+                    email = e_row[0]
 
             # DOB is deliberately excluded from public serialization for privacy.
             age = calculate_age_from_dob(profile[15]) if profile else None
@@ -432,6 +492,12 @@ def get_user_profile(
                     "drinking_preference": profile[22] if profile else None,
                     "preferred_age_min": profile[23] if profile else None,
                     "preferred_age_max": profile[24] if profile else None,
+                    "housing_intent": profile[25] if profile else None,
+                    "move_in_date": profile[26] if profile else None,
+                    "preferred_localities": _parse_json_list(profile[27]) if profile else [],
+                    "deal_breakers": _parse_json_list(profile[28]) if profile else [],
+                    "bio": profile[29] if profile else None,
+                    "profile_visibility": (profile[30] or "hidden") if profile else "hidden",
                 } if profile else None,
             }
     finally:

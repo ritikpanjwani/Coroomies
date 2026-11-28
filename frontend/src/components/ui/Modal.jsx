@@ -90,10 +90,10 @@ export default function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title || "Dialog"}
-        className={`relative max-h-[92dvh] w-full ${maxWidth} animate-scale-in overflow-y-auto rounded-t-2xl bg-white dark:bg-slate-800 shadow-popup sm:max-h-none sm:overflow-visible sm:rounded-2xl`}
+        className={`relative max-h-[92dvh] w-full ${maxWidth} animate-scale-in overflow-y-auto rounded-t-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-popup sm:max-h-none sm:overflow-visible sm:rounded-2xl`}
       >
         {title && (
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-3.5 sm:px-6 sm:py-4">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3.5 sm:px-6 sm:py-4">
             <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
             {showClose && (
               <button

@@ -8,6 +8,9 @@ export function getToken() {
 
 export function removeToken() {
     localStorage.removeItem("access_token");
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("coroomies:logout"));
+    }
 }
 
 export function logout() {
@@ -16,5 +19,8 @@ export function logout() {
     localStorage.removeItem("user_name");
     localStorage.removeItem("user_username");
     localStorage.removeItem("user_avatar");
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("coroomies:logout"));
+    }
 }
 //Stores the JWT in the browser so the user stays authenticated while using the app.

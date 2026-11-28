@@ -89,19 +89,14 @@ def test_profile_completeness_empty():
     is_complete, pct, missing = compute_profile_completeness(None, {})
     assert is_complete is False
     assert pct == 0
-    assert len(missing) == 12
+    assert len(missing) == 7
     assert "Full Name" in missing
     assert "Date of Birth (Age)" in missing
     assert "Gender" in missing
     assert "Preferred Flatmate Gender" in missing
     assert "Location" in missing
     assert "Budget Range" in missing
-    assert "Occupation" in missing
-    assert "Smoking Preference" in missing
-    assert "Drinking Preference" in missing
-    assert "Food Preference" in missing
-    assert "Sleep Schedule" in missing
-    assert "Cleanliness Preference" in missing
+    assert "Housing Intent" in missing
 
 
 def test_profile_completeness_partial():
@@ -111,14 +106,13 @@ def test_profile_completeness_partial():
         "gender": "female",
         "preferred_flatmate_gender": "female",
         "location": "South Delhi",
-        # missing budget, occupation, lifestyle...
+        # missing budget, housing intent
     }
     is_complete, pct, missing = compute_profile_completeness(user_name, prof)
     assert is_complete is False
     assert pct < 100
     assert "Budget Range" in missing
-    assert "Occupation" in missing
-    assert "Drinking Preference" in missing
+    assert "Housing Intent" in missing
 
 
 def test_profile_completeness_full():
@@ -130,12 +124,13 @@ def test_profile_completeness_full():
         "location": "Indiranagar, Bangalore",
         "budget_min": 10000,
         "budget_max": 20000,
+        "housing_intent": "find_together",
         "occupation": "Product Engineer",
         "smoking_preference": "non_smoker",
         "drinking_preference": "social_drinker",
         "food_preferences": "vegetarian",
         "sleep_schedule": "normal",
-        "cleanliness": 8,
+        "cleanliness": 4,
     }
     is_complete, pct, missing = compute_profile_completeness(user_name, prof)
     assert is_complete is True

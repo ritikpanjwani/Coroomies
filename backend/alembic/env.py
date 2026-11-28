@@ -10,13 +10,12 @@ if str(backend_dir) not in sys.path:
 
 from app.profile_models import StudentProfile
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 from alembic import context
 from dotenv import load_dotenv
 from app.expense_models import Expense, RecurringExpense, ExpenseSetting
 from app.models import Base
 from app.request_models import RoommateRequest
-from app.listing_models import RoomListing
 from app.shared_expense_models import SharedExpense, ExpenseShare, ExpenseSettlement
 from app.message_models import Message
 from app.notification_models import Notification
@@ -54,6 +53,15 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+RETAINED_TABLES = {"room_listings", "room_vacancies", "vacancies"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    """Prevent Alembic autogenerate from dropping or modifying retained legacy tables."""
+    if type_ == "table" and name in RETAINED_TABLES:
+        return False
+    return True
+
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url") or DATABASE_URL
@@ -63,6 +71,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -80,9 +89,12 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():
+            # Shared with the explicitly invoked Phase 3 reconciliation.
+            connection.execute(text("SELECT pg_advisory_xact_lock(310721, 3)"))
             context.run_migrations()
 
 

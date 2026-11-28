@@ -3,8 +3,9 @@ import Login from "./login";
 import Spinner from "./components/ui/Spinner";
 import { ToastProvider } from "./components/Toast";
 import ErrorBoundary from "./components/ui/ErrorBoundary";
+import ServerWakeupNotice from "./components/ui/ServerWakeupNotice";
+import { checkBackendReadiness } from "./api";
 
-const Register = lazy(() => import("./Register"));
 const ForgotPassword = lazy(() => import("./ForgotPassword"));
 const Dashboard = lazy(() => import("./Dashboard"));
 
@@ -55,8 +56,14 @@ function App() {
     return () => window.removeEventListener("coroomies:session-expired", handleSessionExpired);
   }, []);
 
+  useEffect(() => {
+    // Proactively ping backend to wake up Render free tier upon page load
+    void checkBackendReadiness();
+  }, []);
+
   return (
     <ToastProvider>
+      <ServerWakeupNotice />
       <ErrorBoundary>
         <Suspense
           fallback={
@@ -67,19 +74,6 @@ function App() {
         >
           {loggedIn ? (
             <Dashboard />
-          ) : view === "register" ? (
-            <Register
-              onRegistered={() => setView("login")}
-              onGoogleLogin={(response) => {
-                localStorage.setItem("access_token", response.access_token);
-                localStorage.setItem("user_id", String(response.user?.id || ""));
-                localStorage.setItem("user_name", response.user?.name || "");
-                localStorage.setItem("user_username", response.user?.username || "");
-                if (response.user?.avatar_url) localStorage.setItem("user_avatar", response.user.avatar_url);
-                setLoggedIn(true);
-              }}
-              goToLogin={() => setView("login")}
-            />
           ) : view === "forgot" ? (
             <ForgotPassword
               goToLogin={() => setView("login")}
@@ -87,7 +81,7 @@ function App() {
           ) : (
             <Login
               onLogin={() => setLoggedIn(true)}
-              goToRegister={() => setView("register")}
+              goToRegister={() => setView("login")}
               goToForgot={() => setView("forgot")}
             />
           )}

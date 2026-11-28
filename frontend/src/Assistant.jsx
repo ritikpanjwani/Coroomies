@@ -104,7 +104,7 @@ function ConflictCard({ conflict, onCopy }) {
                 </div>
             </div>
             <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">{conflict.title}</h3>
-            <p className="mt-1 text-sm text-slate-500">{conflict.detail}</p>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">{conflict.detail}</p>
 
             <div className="mt-3 flex items-start gap-2 rounded-xl bg-brand-50 dark:bg-brand-500/25 p-3">
                 <SparklesIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-600 dark:text-brand-400" />
@@ -142,7 +142,7 @@ function Assistant() {
     const [loading, setLoading] = useState(true);
     const [loadingAnalysis, setLoadingAnalysis] = useState(false);
     const [analysisError, setAnalysisError] = useState(false);
-const [section, setSection] = useState("health");
+    const [section, setSection] = useState("health");
     const toast = useToast();
     const analysisRequestRef = useRef(0);
 
@@ -167,12 +167,29 @@ const [section, setSection] = useState("health");
             setAnalysis(res.data);
         } catch (error) {
             if (analysisRequestRef.current !== requestId) return;
+            if (error.response?.status === 403) {
+                setAnalysis(null);
+                setAnalysisError(false);
+                loadGroups().then((myGroups) => {
+                    const nextId = myGroups.length > 0 && myGroups[0].group_id !== groupId ? myGroups[0].group_id : null;
+                    setSelectedGroupId(nextId);
+                });
+                return;
+            }
             setAnalysisError(true);
             toast.error(errorMessage(error, "Could not analyze group"));
         } finally {
             if (showSpinner && analysisRequestRef.current === requestId) setLoadingAnalysis(false);
         }
-    }, [toast]);
+    }, [toast, loadGroups]);
+
+    const selectGroup = useCallback(async (groupId) => {
+        setSelectedGroupId(groupId);
+        setAnalysis(null);
+        setAnalysisError(false);
+        if (!groupId) return;
+        await loadAnalysis(groupId, true);
+    }, [loadAnalysis]);
 
     useEffect(() => {
         let active = true;
@@ -181,8 +198,9 @@ const [section, setSection] = useState("health");
                 const myGroups = await loadGroups();
                 if (myGroups.length > 0) {
                     const firstId = myGroups[0].group_id;
-                    if (active) setSelectedGroupId(firstId);
-                    await loadAnalysis(firstId);
+                    if (active) selectGroup(firstId);
+                } else if (active) {
+                    selectGroup(null);
                 }
             } catch (error) {
                 console.error(error);
@@ -193,15 +211,49 @@ const [section, setSection] = useState("health");
         return () => {
             active = false;
         };
-    }, [loadGroups, loadAnalysis]);
+    }, [loadGroups, selectGroup]);
 
-    const selectGroup = async (groupId) => {
-        setSelectedGroupId(groupId);
-        setAnalysis(null);
-        setAnalysisError(false);
-        if (!groupId) return;
-        await loadAnalysis(groupId, true);
-    };
+    // Cross-module group synchronization & background revalidation
+    useEffect(() => {
+        let isCurrent = true;
+        const syncGroups = async () => {
+            try {
+                const myGroups = await loadGroups();
+                if (!isCurrent) return;
+                setSelectedGroupId((prevId) => {
+                    const stillMember = myGroups.some((g) => g.group_id === prevId);
+                    if (!stillMember) {
+                        const nextId = myGroups.length > 0 ? myGroups[0].group_id : null;
+                        selectGroup(nextId);
+                        return nextId;
+                    }
+                    return prevId;
+                });
+            } catch {
+                // Fail silently on background sync
+            }
+        };
+
+        const handleVisibility = () => {
+            if (document.visibilityState === "visible") {
+                syncGroups();
+            }
+        };
+
+        window.addEventListener("coroomies:groups-changed", syncGroups);
+        window.addEventListener("focus", syncGroups);
+        document.addEventListener("visibilitychange", handleVisibility);
+
+        const pollTimer = setInterval(syncGroups, 12000);
+
+        return () => {
+            isCurrent = false;
+            window.removeEventListener("coroomies:groups-changed", syncGroups);
+            window.removeEventListener("focus", syncGroups);
+            document.removeEventListener("visibilitychange", handleVisibility);
+            clearInterval(pollTimer);
+        };
+    }, [loadGroups, selectGroup]);
 
     const copyMessage = (text) => {
         (navigator.clipboard?.writeText(text) || Promise.reject())
@@ -233,7 +285,7 @@ const [section, setSection] = useState("health");
                         <GroupPicker groups={groups} selectedGroupId={selectedGroupId} onChange={selectGroup} />
 
                         {/* Section tabs */}
-                        <div className="mb-5 flex gap-1.5 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-white dark:bg-slate-800 p-1 shadow-card">
+                        <div className="mb-5 flex gap-1 overflow-x-auto no-scrollbar touch-scroll scroll-smooth rounded-xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-100 dark:bg-slate-800/80 p-1 shadow-xs">
                             {[
                                 { key: "health", label: "Health" },
                                 { key: "conflicts", label: `Conflicts${analysis ? ` (${analysis.conflicts.length})` : ""}` },
@@ -242,10 +294,10 @@ const [section, setSection] = useState("health");
                                 <button
                                     key={t.key}
                                     onClick={() => setSection(t.key)}
-                                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3.5 py-2 min-h-[42px] text-xs font-medium transition-colors sm:px-4 sm:text-sm ${
+                                    className={`shrink-0 sm:flex-1 whitespace-nowrap rounded-lg px-3.5 py-2 min-h-[40px] text-xs font-semibold transition-all sm:px-4 sm:text-sm cursor-pointer ${
                                         section === t.key
-                                            ? "bg-gradient-to-r from-brand-600 to-violet-500 text-white shadow-sm"
-                                            : "text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 dark:bg-slate-900"
+                                            ? "bg-brand-600 text-white shadow-xs"
+                                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-white/60 dark:hover:bg-slate-700/60"
                                     }`}
                                 >
                                     {t.label}

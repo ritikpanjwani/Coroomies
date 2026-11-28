@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import api, { API_BASE } from "./api";
+import api from "./api";
 import Avatar from "./components/ui/Avatar";
 import Badge from "./components/ui/Badge";
 import Button from "./components/ui/Button";
@@ -37,7 +37,7 @@ import {
     AlertIcon,
     XIcon,
 } from "./components/Icons";
-import { formatTime, formatDate, errorMessage, formatCurrency } from "./utils/format";
+import { formatTime, formatDate, errorMessage, formatCurrency, resolveAvatarUrl } from "./utils/format";
 import {
     ExpenseBubble,
     ExpenseDetailModal,
@@ -120,7 +120,7 @@ function MemberProfileModal({ open, onClose, groupId, member }) {
                     <div className="flex items-center gap-3.5 border-b border-slate-100 dark:border-slate-700/80 pb-4">
                         <Avatar
                             name={profile.name}
-                            src={profile.avatar_url ? `${API_BASE}${profile.avatar_url}` : undefined}
+                            src={resolveAvatarUrl(profile.avatar_url)}
                             size="lg"
                         />
                         <div className="min-w-0 flex-1">
@@ -524,7 +524,7 @@ function AddPeopleModal({ open, onClose, group, onInviteSent }) {
                 {tab === "share" ? (
                     <div className="space-y-4 pt-1">
                         {/* Invite Code Card */}
-                        <div className="rounded-2xl border border-brand-200/80 dark:border-brand-800/80 bg-gradient-to-br from-brand-50/60 to-violet-50/60 dark:from-brand-950/40 dark:to-violet-950/30 p-4 text-center">
+                        <div className="rounded-2xl border border-brand-200/80 dark:border-brand-800/80 bg-brand-50/50 dark:bg-brand-950/30 p-4 text-center">
                             <p className="text-xs font-semibold uppercase tracking-wider text-brand-600 dark:text-brand-400">
                                 Group Invite Code
                             </p>
@@ -635,7 +635,7 @@ function AddPeopleModal({ open, onClose, group, onInviteSent }) {
                                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                                 <Avatar
                                                     name={c.name}
-                                                    src={c.avatar_url ? `${API_BASE}${c.avatar_url}` : undefined}
+                                                    src={resolveAvatarUrl(c.avatar_url)}
                                                     size="sm"
                                                 />
                                                 <div className="min-w-0 flex-1">
@@ -781,7 +781,7 @@ function JoinGroupModal({ open, onClose, onJoined, initialCode = "" }) {
                         <div className="flex items-center gap-3">
                             <Avatar
                                 name={preview.name}
-                                src={preview.avatar_url ? `${API_BASE}${preview.avatar_url}` : undefined}
+                                src={resolveAvatarUrl(preview.avatar_url)}
                                 size="md"
                             />
                             <div className="min-w-0 flex-1">
@@ -923,6 +923,9 @@ function Groups() {
     const messagesRef = useRef(null);
     const groupMenuRef = useRef(null);
     const isNearBottomRef = useRef(true);
+    const isUserScrolledUpRef = useRef(false);
+    const lastMessageCountRef = useRef(0);
+    const justSentMessageRef = useRef(false);
     const lastGroupIdRef = useRef(null);
     const [showScrollBottom, setShowScrollBottom] = useState(false);
     const toast = useToast();
@@ -1001,7 +1004,9 @@ function Groups() {
         try {
             setLoadingMessages(true);
             const response = await api.get(`/groups/${groupId}/messages`);
-            setMessages(response.data.messages || []);
+            const incoming = response.data.messages || [];
+            setMessages(incoming);
+            lastMessageCountRef.current = incoming.length;
         } catch {
             // Fail gracefully on message load error
         } finally {
@@ -1053,6 +1058,9 @@ function Groups() {
         setExpBalances(null);
         setExpMembers([]);
         setExpSettlements([]);
+        isNearBottomRef.current = true;
+        isUserScrolledUpRef.current = false;
+        justSentMessageRef.current = false;
         try {
             const response = await api.get(`/groups/${groupId}`);
             setDetail(response.data.group);
@@ -1078,17 +1086,65 @@ function Groups() {
                 api.get("/shared-expenses/balances", { params: { group_id: selectedGroupId } }),
                 api.get("/shared-expenses/members", { params: { group_id: selectedGroupId } }),
             ]);
-            setMessages(msgRes.data.messages || []);
+
+            const newMsgs = msgRes.data.messages || [];
+            setMessages((prev) => {
+                if (prev.length === newMsgs.length) {
+                    if (prev.length === 0) return prev;
+                    if (prev[prev.length - 1]?.id === newMsgs[newMsgs.length - 1]?.id) {
+                        return prev;
+                    }
+                }
+                return newMsgs;
+            });
+
             if (grpRes.data?.group) {
-                setDetail(grpRes.data.group);
+                setDetail((prev) => {
+                    if (!prev) return grpRes.data.group;
+                    if (
+                        prev.id === grpRes.data.group.id &&
+                        prev.name === grpRes.data.group.name &&
+                        prev.description === grpRes.data.group.description &&
+                        prev.avatar_url === grpRes.data.group.avatar_url &&
+                        prev.my_status === grpRes.data.group.my_status &&
+                        prev.my_role === grpRes.data.group.my_role
+                    ) {
+                        return prev;
+                    }
+                    return grpRes.data.group;
+                });
             }
-            setSharedExpenses(expRes.data.expenses || []);
+
+            const newExpenses = expRes.data.expenses || [];
+            setSharedExpenses((prev) => {
+                if (prev.length === newExpenses.length) {
+                    if (prev.length === 0) return prev;
+                    if (prev[prev.length - 1]?.id === newExpenses[newExpenses.length - 1]?.id) {
+                        return prev;
+                    }
+                }
+                return newExpenses;
+            });
+
             setExpBalances(balRes.data);
             setExpMembers(memRes.data.members || []);
-        } catch {
-            // Ignore background polling errors
+        } catch (err) {
+            if (err.response?.status === 403) {
+                // User has been removed or membership deactivated
+                toast.error("Your membership in this group is no longer active");
+                setSelectedGroupId(null);
+                setDetail(null);
+                setMessages([]);
+                localStorage.removeItem("groups_id");
+                window.dispatchEvent(
+                    new CustomEvent("coroomies:groups-changed", {
+                        detail: { action: "revoked", groupId: selectedGroupId },
+                    })
+                );
+                loadGroups();
+            }
         }
-    }, [selectedGroupId, detail]);
+    }, [selectedGroupId, detail, loadGroups, toast]);
 
     useEffect(() => {
         if (!selectedGroupId || !detail || detail.my_status !== "active") return;
@@ -1101,29 +1157,51 @@ function Groups() {
     const handleMessagesScroll = () => {
         if (!messagesRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = messagesRef.current;
-        const nearBottom = scrollHeight - scrollTop - clientHeight < 120;
+        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+        const nearBottom = distanceFromBottom < 50;
         isNearBottomRef.current = nearBottom;
+        isUserScrolledUpRef.current = !nearBottom;
         setShowScrollBottom(!nearBottom);
     };
 
-    const scrollToBottom = () => {
+    const scrollToBottom = (smooth = true) => {
         if (messagesRef.current) {
             messagesRef.current.scrollTo({
                 top: messagesRef.current.scrollHeight,
-                behavior: "smooth",
+                behavior: smooth ? "smooth" : "auto",
             });
             isNearBottomRef.current = true;
+            isUserScrolledUpRef.current = false;
             setShowScrollBottom(false);
         }
     };
 
     useEffect(() => {
-        if (messagesRef.current) {
-            const groupChanged = lastGroupIdRef.current !== selectedGroupId;
-            lastGroupIdRef.current = selectedGroupId;
-            if (groupChanged || isNearBottomRef.current) {
-                messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-            }
+        if (!messagesRef.current) return;
+        const groupChanged = lastGroupIdRef.current !== selectedGroupId;
+        lastGroupIdRef.current = selectedGroupId;
+
+        if (groupChanged) {
+            isNearBottomRef.current = true;
+            isUserScrolledUpRef.current = false;
+            setShowScrollBottom(false);
+            messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+            lastMessageCountRef.current = messages.length;
+            return;
+        }
+
+        const hasNewMessages = messages.length > lastMessageCountRef.current;
+        lastMessageCountRef.current = messages.length;
+
+        if (
+            justSentMessageRef.current ||
+            (hasNewMessages && isNearBottomRef.current && !isUserScrolledUpRef.current)
+        ) {
+            messagesRef.current.scrollTo({
+                top: messagesRef.current.scrollHeight,
+                behavior: justSentMessageRef.current ? "smooth" : "auto",
+            });
+            justSentMessageRef.current = false;
         }
     }, [messages, selectedGroupId]);
 
@@ -1145,6 +1223,11 @@ function Groups() {
             await loadGroups();
             setSelectedGroupId(response.data.group_id);
             setMobileView("detail");
+            window.dispatchEvent(
+                new CustomEvent("coroomies:groups-changed", {
+                    detail: { action: "create", groupId: response.data.group_id },
+                })
+            );
             await loadDetail(response.data.group_id);
             setMessages([]);
         } catch (error) {
@@ -1229,6 +1312,7 @@ function Groups() {
     const leaveGroup = async () => {
         try {
             setActing(true);
+            const leftGroupId = selectedGroupId;
             await api.post(`/groups/${selectedGroupId}/leave`);
             toast.success("You left the group");
             setLeaveTarget(false);
@@ -1236,6 +1320,12 @@ function Groups() {
             setDetail(null);
             setMessages([]);
             setMobileView("list");
+            localStorage.removeItem("groups_id");
+            window.dispatchEvent(
+                new CustomEvent("coroomies:groups-changed", {
+                    detail: { action: "leave", groupId: leftGroupId },
+                })
+            );
             await loadGroups();
         } catch (error) {
             toast.error(errorMessage(error, "Could not leave group"));
@@ -1247,6 +1337,7 @@ function Groups() {
     const deleteGroup = async () => {
         try {
             setActing(true);
+            const deletedGroupId = selectedGroupId;
             await api.delete(`/groups/${selectedGroupId}`);
             toast.success("Group deleted");
             setDeleteTarget(false);
@@ -1254,6 +1345,12 @@ function Groups() {
             setDetail(null);
             setMessages([]);
             setMobileView("list");
+            localStorage.removeItem("groups_id");
+            window.dispatchEvent(
+                new CustomEvent("coroomies:groups-changed", {
+                    detail: { action: "delete", groupId: deletedGroupId },
+                })
+            );
             await loadGroups();
         } catch (error) {
             toast.error(errorMessage(error, "Could not delete group"));
@@ -1270,6 +1367,11 @@ function Groups() {
             );
             toast.success(`${removeTarget.name} was removed`);
             setRemoveTarget(null);
+            window.dispatchEvent(
+                new CustomEvent("coroomies:groups-changed", {
+                    detail: { action: "remove_member", groupId: selectedGroupId },
+                })
+            );
             await Promise.all([
                 loadDetail(selectedGroupId),
                 loadGroups(),
@@ -1346,21 +1448,17 @@ function Groups() {
         if (!text.trim() || sendingMessage) return;
         try {
             setSendingMessage(true);
+            justSentMessageRef.current = true;
+            isNearBottomRef.current = true;
+            isUserScrolledUpRef.current = false;
+            setShowScrollBottom(false);
             await api.post(`/groups/${selectedGroupId}/messages`, {
                 content: text.trim(),
             });
             setText("");
-            isNearBottomRef.current = true;
-            setShowScrollBottom(false);
             await refreshActiveGroup();
-            if (messagesRef.current) {
-                setTimeout(() => {
-                    if (messagesRef.current) {
-                        messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-                    }
-                }, 60);
-            }
         } catch (error) {
+            justSentMessageRef.current = false;
             toast.error(errorMessage(error, "Could not send message"));
         } finally {
             setSendingMessage(false);
@@ -1619,7 +1717,7 @@ function Groups() {
             >
                 {!detail ? (
                     <div className="flex flex-1 flex-col items-center justify-center bg-slate-50 dark:bg-slate-900/60 p-8 text-center">
-                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-600 to-violet-500 text-white shadow-lg shadow-brand-500/25">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-md shadow-brand-500/20">
                             <HouseIcon className="h-8 w-8" />
                         </div>
                         <h3 className="mt-4 text-lg font-bold text-slate-800 dark:text-slate-200">
@@ -1669,7 +1767,7 @@ function Groups() {
                                 <Avatar
                                     name={detail.name}
                                     size="md"
-                                    src={detail.avatar_url ? `${API_BASE}${detail.avatar_url}` : undefined}
+                                    src={resolveAvatarUrl(detail.avatar_url)}
                                 />
                                 {canEditGroup && (
                                     <>
@@ -1932,7 +2030,7 @@ function Groups() {
                                                     <div className="flex items-center gap-2">
                                                         <Avatar
                                                             name={member.name}
-                                                            src={member.avatar_url ? `${API_BASE}${member.avatar_url}` : undefined}
+                                                            src={resolveAvatarUrl(member.avatar_url)}
                                                             size="sm"
                                                         />
                                                         <div className="min-w-0 flex-1">
@@ -1993,7 +2091,7 @@ function Groups() {
                                                     >
                                                         <Avatar
                                                             name={member.name}
-                                                            src={member.avatar_url ? `${API_BASE}${member.avatar_url}` : undefined}
+                                                            src={resolveAvatarUrl(member.avatar_url)}
                                                             size="sm"
                                                         />
                                                         <div className="min-w-0 flex-1">
@@ -2171,7 +2269,8 @@ function Groups() {
                                                 <div
                                                     ref={messagesRef}
                                                     onScroll={handleMessagesScroll}
-                                                    className="flex-1 space-y-2 overflow-y-auto bg-slate-50/70 dark:bg-slate-900/60 p-3 sm:p-5 touch-scroll"
+                                                    className="flex-1 space-y-2 overflow-y-auto overscroll-y-contain touch-pan-y bg-slate-50/70 dark:bg-slate-900/60 p-3 sm:p-5 touch-scroll"
+                                                    style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}
                                                 >
                                                     {loadingMessages && messages.length === 0 ? (
                                                         <div className="flex justify-center py-10">
@@ -2235,14 +2334,14 @@ function Groups() {
                                                                         {!isOwn && (
                                                                             <Avatar
                                                                                 name={message.sender_name}
-                                                                                src={message.sender_avatar ? `${API_BASE}${message.sender_avatar}` : undefined}
+                                                                                src={resolveAvatarUrl(message.sender_avatar)}
                                                                                 size="sm"
                                                                             />
                                                                         )}
                                                                         <div
                                                                             className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-3.5 py-2.5 ${
                                                                                 isOwn
-                                                                                    ? "rounded-br-md bg-gradient-to-br from-brand-600 to-violet-500 text-white shadow-sm"
+                                                                                    ? "rounded-br-md bg-brand-600 text-white shadow-xs"
                                                                                     : "rounded-bl-md bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 shadow-sm ring-1 ring-slate-200/60 dark:ring-slate-700/60"
                                                                             }`}
                                                                         >
@@ -2383,6 +2482,11 @@ function Groups() {
                     setInitialJoinCode("");
                 }}
                 onJoined={async () => {
+                    window.dispatchEvent(
+                        new CustomEvent("coroomies:groups-changed", {
+                            detail: { action: "join" },
+                        })
+                    );
                     await loadGroups();
                 }}
             />
@@ -2604,7 +2708,7 @@ function Groups() {
 
 function ChatPlaceholder() {
     return (
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-50 to-violet-50 text-brand-500 ring-1 ring-brand-100 dark:ring-brand-800">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 dark:bg-brand-950/50 text-brand-600 dark:text-brand-400 ring-1 ring-brand-200/60 dark:ring-brand-800/60">
             <SendIcon className="h-6 w-6" />
         </div>
     );

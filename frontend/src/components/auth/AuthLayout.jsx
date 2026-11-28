@@ -21,7 +21,7 @@ const FEATURES = [
 function LogoMark({ className = "" }) {
   return (
     <div
-      className={`flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-violet-500 text-white shadow-glow ${className}`}
+      className={`flex h-10 w-10 items-center justify-center rounded-xl bg-brand-600 text-white shadow-xs ${className}`}
     >
       <UsersIcon className="h-5 w-5" />
     </div>
@@ -31,14 +31,8 @@ function LogoMark({ className = "" }) {
 export default function AuthLayout({ children, title, subtitle }) {
   return (
     <div className="relative flex min-h-screen w-full overflow-y-auto bg-slate-50 dark:bg-slate-900">
-      {/* Ambient glows */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-32 top-24 h-72 w-72 rounded-full bg-brand-400/10 blur-3xl dark:bg-brand-500/10" />
-        <div className="absolute -right-24 bottom-10 h-80 w-80 rounded-full bg-violet-400/10 blur-3xl dark:bg-violet-500/10" />
-      </div>
-
       {/* Brand panel */}
-      <div className="relative hidden w-[44%] overflow-hidden bg-gradient-to-br from-brand-700 via-brand-600 to-violet-500 lg:block">
+      <div className="relative hidden w-[44%] overflow-hidden bg-brand-600 lg:block">
         <div className="absolute -left-24 -top-24 h-96 w-96 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute -bottom-32 -right-16 h-96 w-96 rounded-full bg-accent-400/20 blur-3xl" />
         <div className="absolute right-10 top-16 opacity-20">
